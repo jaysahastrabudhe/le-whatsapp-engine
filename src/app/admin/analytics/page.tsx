@@ -211,7 +211,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                       ) : (
                         <>
                           <div className="text-gray-800">
-                            {row.template_id || SID_TO_NAME[row.template_variant_id || ''] || '—'}
+                            {row.template_id || SID_TO_NAME[row.template_variant_id || ''] || row.content || '—'}
                           </div>
                           {row.template_variant_id && (
                             <div className="text-xs text-gray-400 font-mono">
@@ -249,7 +249,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                       {row.read_at ? formatTime(row.read_at) : '—'}
                     </td>
                     <td className="p-3 whitespace-nowrap">
-                      {inWindow && row.lead_id && row.phone_normalised ? (
+                      {isInbound && inWindow && row.lead_id && row.phone_normalised ? (
                         <div className="flex items-center gap-2">
                           <span
                             title="24-hour reply window open"
