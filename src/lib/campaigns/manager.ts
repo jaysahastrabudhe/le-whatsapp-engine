@@ -68,6 +68,7 @@ export async function createAndLaunchCampaign(
         contentSid:       templateVariantId,
         templateName,
         leadId:           lead.id,
+        campaignId:       campaign.id,
         contentVariables: JSON.stringify({ '1': lead.name || 'there' }),
       });
       enqueued++;

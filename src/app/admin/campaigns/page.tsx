@@ -95,13 +95,21 @@ export default async function CampaignsPage() {
               {/* Footer */}
               <div className="flex items-center justify-between pt-1">
                 <span className="text-xs text-gray-400">
-                  Created {new Date(camp.created_at).toLocaleString()}
+                  Created {new Date(camp.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </span>
-                {camp.segment_filters && Object.keys(camp.segment_filters).length > 0 && (
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                    Segment: {JSON.stringify(camp.segment_filters)}
-                  </span>
-                )}
+                <div className="flex items-center gap-3">
+                  {camp.segment_filters && Object.keys(camp.segment_filters).length > 0 && (
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                      Segment: {JSON.stringify(camp.segment_filters)}
+                    </span>
+                  )}
+                  <Link
+                    href={`/admin/campaigns/${camp.id}`}
+                    className="text-xs text-blue-600 hover:underline font-medium"
+                  >
+                    View details →
+                  </Link>
+                </div>
               </div>
             </div>
           );

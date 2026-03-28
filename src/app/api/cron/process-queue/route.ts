@@ -76,10 +76,16 @@ export async function GET(request: Request) {
       }
     }
 
-    // 3. Drain campaign queue (rate-limited: 30 messages per cron tick)
+    // 3. Drain campaign queue — random batch size + jitter to avoid bulk patterns
     if (isWithinSendWindow()) {
-      const campaignJobs = await dequeueCampaignMessages(30);
+      const batchSize = Math.floor(Math.random() * 7) + 8; // 8–14 per tick
+      const campaignJobs = await dequeueCampaignMessages(batchSize);
+      // Shuffle to avoid sequential phone number patterns
+      campaignJobs.sort(() => Math.random() - 0.5);
+
       for (const data of campaignJobs) {
+        // Random jitter 200–600ms between each dispatch
+        await new Promise(r => setTimeout(r, 200 + Math.random() * 400));
         try {
           const msg = await dispatchMessage({
             ...data,
@@ -91,6 +97,14 @@ export async function GET(request: Request) {
           if (msg) {
             results.push(`campaign:${data.to}:${msg.sid}`);
             console.log(`[Cron] Campaign sent ${data.contentSid} to ${data.to} — SID: ${msg.sid}`);
+            // Mark campaign_lead as sent
+            if (data.campaignId && data.leadId) {
+              await supabase
+                .from('campaign_leads')
+                .update({ status: 'sent', sent_at: new Date().toISOString() })
+                .eq('campaign_id', data.campaignId)
+                .eq('lead_id', data.leadId);
+            }
           }
         } catch (e) {
           console.error(`[Cron] Campaign dispatch error for ${data.to}`, e);
