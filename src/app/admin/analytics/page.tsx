@@ -78,6 +78,8 @@ export default async function AnalyticsPage({ searchParams }: Props) {
     const applyFilters = (qb: any) => {
       if (filter === 'inbound') {
         qb = qb.eq('direction', 'inbound');
+      } else if (filter === 'unrouted') {
+        qb = qb.eq('direction', 'outbound').eq('status', 'unrouted');
       } else if (filter !== 'all') {
         qb = qb.eq('direction', 'outbound').eq('status', filter);
       }
@@ -153,7 +155,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
 
         {/* Filter bar */}
         <div className="flex flex-wrap gap-2 items-center">
-          {(['all', 'inbound', 'failed', 'delivered', 'read', 'sent'] as const).map((f) => (
+          {(['all', 'inbound', 'unrouted', 'failed', 'delivered', 'read', 'sent'] as const).map((f) => (
             <Link
               key={f}
               href={msgUrl({ filter: f, page: '1' })}
@@ -224,7 +226,9 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                     <td className="p-3">
                       {isInbound
                         ? <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700">inbound</span>
-                        : <StatusBadge status={row.status} />
+                        : row.status === 'unrouted'
+                          ? <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-400 font-mono">null</span>
+                          : <StatusBadge status={row.status} />
                       }
                     </td>
                     <td className="p-3">
@@ -509,6 +513,7 @@ function StatusBadge({ status }: { status: string | null }) {
     delivered: 'bg-blue-100 text-blue-700',
     read:      'bg-green-100 text-green-700',
     failed:    'bg-red-100 text-red-700',
+    unrouted:  'bg-gray-100 text-gray-400',
   };
   const s = status ?? 'unknown';
   return (
