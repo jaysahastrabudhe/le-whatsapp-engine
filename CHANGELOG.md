@@ -5,6 +5,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.5.0] - 2026-03-28 (24h Reply Window Indicator + Free-Form Reply)
+
+### Added
+- **24h window pulse indicator** in Message Log — new "Window" column shows a green pulsing dot on every row for a lead whose `wa_last_inbound_at` is within the last 24 hours (the WhatsApp customer service window). Computed server-side at render time.
+- **Free-form reply button** (`ReplyButton` client component) — appears alongside the pulse dot. Opens a modal with the lead's name, phone, a "window open" badge, and a textarea. ⌘+Enter shortcut supported.
+- **`POST /api/admin/send-reply`** — validates 24h window server-side before calling Twilio. Sends free-form message using `body:` (not `contentSid:`). Records reply in `messages` table as outbound. Returns error if window has closed since page load.
+- **`leads!lead_id(wa_last_inbound_at)`** added to Message Log query — enables per-row window calculation without an extra query.
+
+---
+
+## [3.4.0] - 2026-03-28 (Campaign Manager Overhaul)
+
+### Added
+- **Campaign creation — template dropdown**: Create campaign page is now an async server component. Fetches approved templates from Supabase/Twilio; shows name dropdown instead of raw HX SID input. `templateName` stored and passed through the queue payload for analytics tracking.
+- **Campaign detail page** (`/admin/campaigns/[id]`) — full per-campaign dashboard:
+  - Delivery funnel: Targeted → Sent → Delivered → Read → Replied (with % rate) → Failed
+  - Funnel data sourced from `messages` table JOIN (real Twilio callback statuses), not `campaign_leads.status`
+  - **Respondents table** — all inbound messages from campaign leads after campaign start, with lead name, phone, reply text, classification badge (interested/fee_question/not_now etc.), and IST timestamp
+- **"View details →" link** on each campaign row in the campaigns list page
+- **`campaignId` in queue payload** — added to `enqueueCampaignMessage` so the drain loop can update `campaign_leads`
+- **`campaign_leads.status = 'sent'`** — updated after each successful dispatch in the campaign drain loop, so the list page funnel stats now populate
+- **Campaign queue drain in `process-queue` cron** — drains `le:queue:campaign` separately from regular outbound
+
+### Changed
+- **Campaign rate limiting — jitter added**: Drain batch is now random 8–14 (was fixed 30) per cron tick. Messages are shuffled before dispatch to avoid sequential phone number patterns. Random 200–600ms sleep between each send. Fits within Vercel Hobby 10s function timeout. Effective throughput ~10/min (~600/hr).
+- **`lead_source` filter** — uses `ilike` partial match (e.g. "Meta" matches "Meta Ads")
+- **`contentVariables`** — campaign messages now pass `{ "1": lead.name || "there" }` automatically
+
+---
+
 ## [3.3.3] - 2026-03-27 (Routing + Cooldown Fixes)
 
 ### Fixed

@@ -3,7 +3,7 @@
 **Production-ready WhatsApp lead engagement engine** connecting Zoho CRM ↔ Twilio WhatsApp ↔ Supabase, with automated message classification, SLA tracking, campaign management, a visual Logic Builder, and a full source×persona routing rule set.
 
 **Live URL:** [https://le-whatsapp-engine.vercel.app/admin](https://le-whatsapp-engine.vercel.app/admin)
-**Version:** 3.3.3 | **Status:** ✅ Phase 1–3.5 Complete — Engine live, source × persona routing correct, cooldown enforced, templates via Supabase.
+**Version:** 3.5.0 | **Status:** ✅ Phase 1–3.7 Complete — Engine live, campaign manager overhauled, 24h reply window + free-form reply in message log.
 
 ---
 
@@ -92,10 +92,11 @@ Zoho CRM ──webhook──► /api/webhooks/zoho
 | **Control Hub** | `/admin` | Central dashboard — 7-card grid linking all tools |
 | **Logic Builder** | `/admin/logic-builder` | Visual drag-and-drop FSM editor (React Flow). Loads saved graph from DB on open. |
 | **SLA Monitor** | `/admin/sla-monitor` | Table of leads ticking toward or past 2h SLA deadline |
-| **Campaign Manager** | `/admin/campaigns` | Manage bulk WhatsApp campaigns with per-campaign funnel stats |
-| **Create Campaign** | `/admin/campaigns/create` | Segment leads and launch batch sends |
+| **Campaign Manager** | `/admin/campaigns` | Manage bulk WhatsApp campaigns with per-campaign funnel stats and "View details" link |
+| **Campaign Detail** | `/admin/campaigns/[id]` | Full delivery funnel (Targeted→Sent→Delivered→Read→Replied→Failed) + respondents table |
+| **Create Campaign** | `/admin/campaigns/create` | Template dropdown (from Supabase), segment filters, launches with jitter queue |
 | **Reply Classification** | `/admin/classification` | Edit keywords per reply class — no deploy needed |
-| **Template Analytics** | `/admin/analytics` | 2-tab: Template Performance (delivery %, reply %, top error code) + Message Log (inbound + outbound, reply content, IST timestamps, filter by status/direction) |
+| **Template Analytics** | `/admin/analytics` | 2-tab: Template Performance + Message Log. Message Log includes 24h window pulse dot and free-form Reply button per lead |
 | **WhatsApp Templates** | `/admin/templates` | Live Twilio template list with approval status and manual Refresh |
 | **Zoho Field Mapping** | `/admin/zoho-mapping` | Internal key ↔ Zoho merge tag reference table + recommended JSON for Zoho webhook setup |
 
@@ -204,6 +205,7 @@ ButtonPayload taps are detected first. Free text falls through to NLP classifier
 | `/api/admin/templates/refresh` | POST | Bust Twilio template cache and reload |
 | `/api/admin/settings` | GET | Read a `system_settings` key (e.g. `engine_enabled`) |
 | `/api/admin/settings` | POST | Write a `system_settings` key |
+| `/api/admin/send-reply` | POST | Send a free-form WhatsApp reply within the 24h customer service window |
 
 ---
 
@@ -330,7 +332,8 @@ wa_pending → first_sent → replied → wa_hot → [counsellor handles]
 - **Time window:** 9 AM – 8 PM IST only
 - **Cooldown:** Max 2 outbound templates before any inbound reply (enforced in `dispatcher.ts`)
 - **Opt-out:** `wa_opt_in = false` → absolute halt, no sends regardless of state
-- **Campaign rate limit:** 30 msg/min
+- **Campaign rate limit:** ~10/min (random batch 8–14, shuffled, 200–600ms jitter between sends — avoids bulk detection by Meta)
+- **24h customer service window:** Free-form replies allowed within 24h of a lead's last inbound message. Pulse indicator shown in Message Log; Reply button opens a modal to send directly from the admin.
 
 ---
 
@@ -357,6 +360,10 @@ vercel --prod --yes
 | Phase 1 | ✅ Complete | Rules Engine v3, Zoho integration, all 10 templates approved, E2E delivery confirmed 27 Mar 2026 |
 | Phase 2 | ✅ Complete | Global Kill Switch, Zoho Field Mapping page, persistent template cache, dispatcher safety layer |
 | Phase 3.3 | ✅ Complete | Analytics 2-tab rewrite, messages table migration, dispatcher + inbound bug fixes, Twilio console config, backfill script, full E2E confirmed |
+| Phase 3.4 | ✅ Complete | Supabase templates table, single source of truth for SIDs, constants stripped |
+| Phase 3.5 | ✅ Complete | lead_source field name fix, cooldown sent_at fix, dispatcher double-SID fix |
+| Phase 3.6 | ✅ Complete | Campaign manager overhaul: template dropdown, contentVariables, jitter, campaign_leads tracking, detail page + respondents |
+| Phase 3.7 | ✅ Complete | 24h reply window pulse indicator + free-form reply button in Message Log |
 | Phase 3 (next) | ⚪ Planned | Cron deduplication, named flow saves, editable button map, expanded Zoho writeback |
 | Phase 4 | ⚪ Future | Multiple flows, end node differentiation, CSV contacts campaigns |
 

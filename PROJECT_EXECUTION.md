@@ -1,8 +1,8 @@
 # LE WhatsApp Automation — Project Execution Tracker
 **Project:** ZOHO + Twilio WhatsApp Lead Engagement Engine
 **Started:** 23 March 2026
-**Last Updated:** 27 March 2026
-**Status:** 🟢 PHASE 1, 2, 3.3, 3.4 & 3.5 COMPLETE — Engine live; source × persona routing now correct; cooldown enforced; templates via Supabase.
+**Last Updated:** 28 March 2026
+**Status:** 🟢 PHASE 1, 2, 3.3–3.7 COMPLETE — Engine live; campaign manager overhauled; 24h reply window indicator + free-form reply live in message log.
 
 > **How to use this file**
 > - Mark tasks `[x]` when done, `[~]` when in progress, `[!]` when blocked
@@ -25,6 +25,8 @@
 | **Phase 3.3 — Analytics & Bug Fixes** | **11** | **11** | **0** | **0** |
 | **Phase 3.4 — Templates Architecture** | **6** | **6** | **0** | **0** |
 | **Phase 3.5 — Routing & Cooldown Fixes** | **3** | **3** | **0** | **0** |
+| **Phase 3.6 — Campaign Manager Overhaul** | **6** | **6** | **0** | **0** |
+| **Phase 3.7 — 24h Window + Free-Form Reply** | **4** | **4** | **0** | **0** |
 | Phase 3 — Next Sprint | 7 | 0 | 0 | 0 |
 | Phase 4 — Future | 5 | 0 | 0 | 0 |
 
@@ -249,6 +251,48 @@
 - [x] **P3.4.5 — Analytics SID↔name maps** — Removed `TEMPLATE_SIDS` import; maps now built purely from `getApprovedTemplates()` (Supabase-backed)
 - [x] **P3.4.6 — Message Log text wrapping** — Template/Message column was truncating; now uses `whitespace-pre-wrap break-words`
 - **Result:** Single source of truth for templates established. All SID resolution goes through Supabase → Redis → Twilio. No hardcoded SIDs anywhere in codebase.
+
+---
+
+## 🟢 PHASE 3.6 — CAMPAIGN MANAGER OVERHAUL (28 March 2026) ✅ COMPLETE
+
+- [x] **P3.6.1 — Template dropdown on campaign create page**
+  - Create campaign page rewritten as async server component; fetches approved templates from Supabase/Twilio
+  - Template name + SID captured separately; `templateName` passed through queue payload for analytics
+- [x] **P3.6.2 — contentVariables with lead name**
+  - Campaign messages now include `{ "1": lead.name || "there" }` as contentVariables automatically
+- [x] **P3.6.3 — Campaign queue drain with jitter**
+  - Random batch size 8–14 per cron tick (was fixed 30)
+  - Messages shuffled before dispatch to avoid sequential number patterns
+  - 200–600ms random sleep between each send — fits Vercel Hobby 10s timeout
+  - Effective throughput ~10/min ≈ 600/hr
+- [x] **P3.6.4 — `campaign_leads.status` tracking**
+  - `campaignId` + `leadId` added to queue payload
+  - After each successful dispatch, `campaign_leads.status = 'sent'` + `sent_at` updated in Supabase
+  - Campaigns list funnel stats now populate correctly
+- [x] **P3.6.5 — Campaign detail page** (`/admin/campaigns/[id]`)
+  - Full delivery funnel: Targeted → Sent → Delivered → Read → Replied (with %) → Failed
+  - Sent from `campaign_leads`; Delivered/Read/Failed from `messages` table JOIN (real Twilio callbacks)
+  - Respondents table: inbound replies from campaign leads after campaign start (name, phone, text, classification, IST time)
+- [x] **P3.6.6 — "View details →" links on campaigns list page**
+
+---
+
+## 🟢 PHASE 3.7 — 24H REPLY WINDOW + FREE-FORM REPLY (28 March 2026) ✅ COMPLETE
+
+- [x] **P3.7.1 — 24h window pulse in Message Log**
+  - New "Window" column in message log table
+  - Green `animate-pulse` dot shown on every row where `wa_last_inbound_at > now - 24h`
+  - Computed server-side from `leads!lead_id(wa_last_inbound_at)` join (no extra query)
+- [x] **P3.7.2 — ReplyButton client component** (`src/components/ReplyButton.tsx`)
+  - Modal with lead name, phone, "window open" badge, textarea, ⌘+Enter shortcut
+  - Error state shows API error message; success auto-closes after 1.8s
+- [x] **P3.7.3 — `POST /api/admin/send-reply` endpoint**
+  - Validates 24h window server-side before any Twilio call
+  - Sends free-form message via `body:` (works within customer service window, no template needed)
+  - Inserts outbound record into `messages` table
+- [x] **P3.7.4 — Message Log query update**
+  - Added `lead_id` and `wa_last_inbound_at` to select; `colSpan` updated to 8
 
 ---
 
