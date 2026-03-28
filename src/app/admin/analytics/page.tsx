@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { getApprovedTemplates } from '@/lib/twilio/templates';
 import Link from 'next/link';
+import { ReplyButton } from '@/components/ReplyButton';
 
 export const revalidate = 0;
 
@@ -29,6 +30,7 @@ type TemplateStats = {
 
 type MsgRow = {
   id: string;
+  lead_id: string | null;
   direction: string | null;
   phone_normalised: string | null;
   template_id: string | null;
@@ -39,7 +41,7 @@ type MsgRow = {
   sent_at: string | null;
   delivered_at: string | null;
   read_at: string | null;
-  leads: { name: string | null } | null;
+  leads: { name: string | null; wa_last_inbound_at: string | null } | null;
 };
 
 const PAGE_SIZE = 50;
@@ -98,7 +100,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
     const { data, error } = await applyFilters(
       supabase
         .from('messages')
-        .select('id, direction, phone_normalised, template_id, template_variant_id, content, status, error_code, sent_at, delivered_at, read_at, leads!lead_id(name)')
+        .select('id, lead_id, direction, phone_normalised, template_id, template_variant_id, content, status, error_code, sent_at, delivered_at, read_at, leads!lead_id(name, wa_last_inbound_at)')
         .order('sent_at', { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1)
     );
@@ -110,6 +112,8 @@ export default async function AnalyticsPage({ searchParams }: Props) {
     const rows = (data || []) as unknown as MsgRow[];
     const total = totalCount ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+    const windowCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     // Build URL helper preserving all params
     const msgUrl = (overrides: Record<string, string>) => {
@@ -179,11 +183,16 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Time</th>
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Delivered</th>
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Read</th>
+                <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Window</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
                 const isInbound = row.direction === 'inbound';
+                const inWindow = !!(
+                  row.leads?.wa_last_inbound_at &&
+                  row.leads.wa_last_inbound_at > windowCutoff
+                );
                 return (
                   <tr key={row.id} className={`border-b hover:bg-gray-50/50 ${isInbound ? 'bg-indigo-50/30' : ''}`}>
                     <td className="p-3">
@@ -239,12 +248,29 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                     <td className="p-3 text-gray-500 text-xs whitespace-nowrap">
                       {row.read_at ? formatTime(row.read_at) : '—'}
                     </td>
+                    <td className="p-3 whitespace-nowrap">
+                      {inWindow && row.lead_id && row.phone_normalised ? (
+                        <div className="flex items-center gap-2">
+                          <span
+                            title="24-hour reply window open"
+                            className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"
+                          />
+                          <ReplyButton
+                            phone={row.phone_normalised}
+                            leadId={row.lead_id}
+                            leadName={row.leads?.name || row.phone_normalised}
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-gray-200 text-xs">—</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-gray-400">
+                  <td colSpan={8} className="p-8 text-center text-gray-400">
                     No messages found{q ? ` matching "${q}"` : filter !== 'all' ? ` with filter "${filter}"` : ''}.
                   </td>
                 </tr>
