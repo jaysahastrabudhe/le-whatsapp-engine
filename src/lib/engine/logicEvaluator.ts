@@ -42,15 +42,21 @@ export function evaluateWorkflowGraph(
     return { type: 'no_match', reason: 'graph_unrouted' };
   }
 
-  return stepGraph(triggerNode.id, lead, nodes, edges);
+  return stepGraph(triggerNode.id, lead, nodes, edges, new Set());
 }
 
 function stepGraph(
   currentNodeId: string,
   lead: Lead,
   nodes: ReactFlowNode[],
-  edges: ReactFlowEdge[]
+  edges: ReactFlowEdge[],
+  visited: Set<string>
 ): EvaluatedAction {
+  if (visited.has(currentNodeId)) {
+    console.error(`[LogicEvaluator] Cycle detected at node ${currentNodeId} — aborting traversal.`);
+    return { type: 'no_match', reason: 'graph_unrouted' };
+  }
+  visited.add(currentNodeId);
   const currentNode = nodes.find((n) => n.id === currentNodeId);
   if (!currentNode) return { type: 'no_match', reason: 'graph_unrouted' };
 
@@ -82,7 +88,7 @@ function stepGraph(
     if (outgoingEdges.length === 0) return { type: 'no_match', reason: 'graph_unrouted' };
 
     if (currentNode.type === 'triggerNode') {
-      return stepGraph(outgoingEdges[0].target, lead, nodes, edges);
+      return stepGraph(outgoingEdges[0].target, lead, nodes, edges, visited);
     }
 
     if (currentNode.type === 'conditionNode') {
@@ -101,7 +107,7 @@ function stepGraph(
 
       const targetEdge = outgoingEdges.find((e) => e.sourceHandle === (isTrue ? 'true' : 'false'));
       if (targetEdge) {
-        return stepGraph(targetEdge.target, lead, nodes, edges);
+        return stepGraph(targetEdge.target, lead, nodes, edges, visited);
       }
     }
   }

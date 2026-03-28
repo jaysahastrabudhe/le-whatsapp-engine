@@ -78,7 +78,8 @@ export async function createAndLaunchCampaign(
   }
 
   console.log(`[Campaign] "${name}" launched — ${enqueued}/${leads.length} leads enqueued.`);
-  await supabase.from('campaigns').update({ status: 'completed' }).eq('id', campaign.id);
+  // Status stays 'running' — the process-queue cron marks it 'completed'
+  // once all campaign_leads have been dispatched.
 
   return { success: true, count: enqueued, campaignId: campaign.id };
 }

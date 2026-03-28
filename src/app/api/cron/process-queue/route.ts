@@ -97,13 +97,26 @@ export async function GET(request: Request) {
           if (msg) {
             results.push(`campaign:${data.to}:${msg.sid}`);
             console.log(`[Cron] Campaign sent ${data.contentSid} to ${data.to} — SID: ${msg.sid}`);
-            // Mark campaign_lead as sent
             if (data.campaignId && data.leadId) {
               await supabase
                 .from('campaign_leads')
                 .update({ status: 'sent', sent_at: new Date().toISOString() })
                 .eq('campaign_id', data.campaignId)
                 .eq('lead_id', data.leadId);
+
+              // Mark campaign completed when no pending leads remain
+              const { count: pendingCount } = await supabase
+                .from('campaign_leads')
+                .select('*', { count: 'exact', head: true })
+                .eq('campaign_id', data.campaignId)
+                .eq('status', 'pending');
+              if (pendingCount === 0) {
+                await supabase
+                  .from('campaigns')
+                  .update({ status: 'completed' })
+                  .eq('id', data.campaignId)
+                  .eq('status', 'running');
+              }
             }
           }
         } catch (e) {
