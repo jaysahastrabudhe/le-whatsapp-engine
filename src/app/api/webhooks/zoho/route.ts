@@ -30,12 +30,14 @@ const zohoPayloadSchema = z.object({
 });
 
 /** Derive urgency from academic_level per Rule 3 */
-function computeUrgency(academicLevel: string | null | undefined): 'HIGH' | 'MEDIUM' | 'LOW' {
-  if (!academicLevel) return 'HIGH'; // unknown → don't suppress
-  const lvl = academicLevel.toLowerCase();
-  if (lvl.includes('10th') || lvl.includes('9th') || lvl.includes('8th')) return 'LOW';
-  if (lvl.includes('11th')) return 'MEDIUM';
-  // 12th, graduate, already in college, or anything else → HIGH
+function computeUrgency(intake: string | null | undefined): 'HIGH' | 'MEDIUM' | 'LOW' {
+  if (!intake) return 'HIGH'; // unknown → don't suppress
+  const val = intake.toLowerCase();
+  // "2027 Intake" or later → lower priority but still worth contacting
+  if (val.includes('2027')) return 'MEDIUM';
+  // "2028 Intake" or beyond → not ready yet
+  if (val.match(/202[89]|20[3-9]\d/)) return 'LOW';
+  // "2026 Intake" or anything else → HIGH
   return 'HIGH';
 }
 
@@ -152,8 +154,16 @@ export async function POST(req: NextRequest) {
     const phoneNum = String(rawPhone).replace(/\D/g, '');
     const cleanPhone = phoneNum.startsWith('91') ? `+${phoneNum}` : (phoneNum.length === 10 ? `+91${phoneNum}` : `+${phoneNum}`);
 
-    // Compute urgency from academic_level (Rule 3)
-    const academicLevel = data.academic_level || data.What_options_are_you_exploring || data.What_are_you_currently_doing || null;
+    // Compute urgency from intake year field (Rule 3)
+    // Zoho field: "When are you looking to start your business degree"
+    // Returns: "2026 Intake", "2027 Intake", or null
+    const academicLevel =
+      data.When_are_you_looking_to_start_your_business_degre ||
+      data['When are you looking to start your business degre'] ||
+      data.academic_level ||
+      data.What_options_are_you_exploring ||
+      data.What_are_you_currently_doing ||
+      null;
     const urgency = computeUrgency(academicLevel);
 
     // Contact fields — safe to overwrite on every webhook (CRM data, not WA state)
