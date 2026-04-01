@@ -59,10 +59,28 @@ async function fetchFromTwilio(): Promise<TwilioTemplate[]> {
 /**
  * Fetch templates from Twilio and upsert into Supabase (persistent store).
  * Also repopulates the Redis cache.
+ *
+ * Strategy: delete stale rows first (SIDs that no longer exist in Twilio),
+ * then upsert fresh data. This avoids UNIQUE(name) conflicts when a template
+ * is deleted and recreated in Twilio with a new SID but the same name.
  */
 export async function syncTemplatesToSupabase(): Promise<TwilioTemplate[]> {
   const templates = await fetchFromTwilio();
+  const liveSids = templates.map((t) => t.sid);
 
+  // 1. Delete templates that no longer exist in Twilio (stale SIDs with conflicting names)
+  if (liveSids.length > 0) {
+    const { error: deleteErr } = await supabase
+      .from('templates')
+      .delete()
+      .not('sid', 'in', `(${liveSids.join(',')})`);
+
+    if (deleteErr) {
+      console.warn('[Templates] Stale cleanup failed:', deleteErr.message);
+    }
+  }
+
+  // 2. Upsert fresh data
   const { error } = await supabase.from('templates').upsert(
     templates.map((t) => ({
       sid:        t.sid,
