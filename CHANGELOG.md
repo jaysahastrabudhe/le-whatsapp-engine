@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`track_selector_sent` state** — New `wa_state` value for Rule 6a progression, preventing Rule 6b from double-sending.
 - **`/api/admin/import-replies/preview`** — POST endpoint for auto-classifying CSV rows before commit.
 - **`/api/admin/import-replies/history`** — GET endpoint returning last 10 import/export logs.
+- **`/api/admin/retry-unrouted`** — Helper endpoint to replay `wa_unrouted` leads against the Rules Engine after updating the workflow graph or syncing missing templates.
 
 ### Changed
 - **Reengagement cron — optimistic locking** (`reengagement/route.ts`):
@@ -37,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - **Follow-up double-send bug** — Rules 5 & 6 could send the same lead duplicate messages when cron runs overlapped. Fixed via optimistic locking pattern.
 - **Rule 6 cross-contamination** — A lead could receive both `wa_track_selector` (6a) and `wa_followup_2_quickreply` (6b) because no guard prevented the second send after the first.
+- **Template Sync UNIQUE Constraint Failure** — `templates` table sync silently failed to upsert templates recreated in Twilio with a new SID but the same name due to `UNIQUE(name)` constraint. Fixed by purging stale SIDs prior to upsert.
 
 ---
 
