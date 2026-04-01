@@ -15,7 +15,8 @@ export type RoutingReason =
 export type RoutingTrigger =
   | 'zoho_webhook'
   | 'wa_pending_sweep'
-  | 'reengagement_cron';
+  | 'reengagement_cron'
+  | 'manual_retry';
 
 export interface RoutingEventPayload {
   trigger: RoutingTrigger;
