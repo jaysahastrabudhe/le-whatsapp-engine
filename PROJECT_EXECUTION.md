@@ -1,8 +1,8 @@
 # LE WhatsApp Automation — Project Execution Tracker
 **Project:** ZOHO + Twilio WhatsApp Lead Engagement Engine
 **Started:** 23 March 2026
-**Last Updated:** 28 March 2026
-**Status:** 🟢 PHASE 1, 2, 3.3–3.7 COMPLETE — Engine live; campaign manager overhauled; 24h reply window indicator + free-form reply live in message log.
+**Last Updated:** 30 March 2026
+**Status:** 🟢 PHASE 1, 2, 3.3–3.9 COMPLETE — Engine live; SLA escalation to Zoho live; manual contact flow live; admin UI overhauled; follow-up logic fully configurable.
 
 > **How to use this file**
 > - Mark tasks `[x]` when done, `[~]` when in progress, `[!]` when blocked
@@ -27,6 +27,8 @@
 | **Phase 3.5 — Routing & Cooldown Fixes** | **3** | **3** | **0** | **0** |
 | **Phase 3.6 — Campaign Manager Overhaul** | **6** | **6** | **0** | **0** |
 | **Phase 3.7 — 24h Window + Free-Form Reply** | **4** | **4** | **0** | **0** |
+| **Phase 3.8 — Routing Audit + Graph Hardening** | **8** | **8** | **0** | **0** |
+| **Phase 3.9 — SLA Escalation + Manual Contact + UI + Follow-up Config** | **9** | **9** | **0** | **0** |
 | Phase 3 — Next Sprint | 7 | 0 | 0 | 0 |
 | Phase 4 — Future | 5 | 0 | 0 | 0 |
 
@@ -293,6 +295,78 @@
   - Inserts outbound record into `messages` table
 - [x] **P3.7.4 — Message Log query update**
   - Added `lead_id` and `wa_last_inbound_at` to select; `colSpan` updated to 8
+
+---
+
+## 🟢 PHASE 3.8 — ROUTING AUDIT LOG + GRAPH HARDENING (29 March 2026) ✅ COMPLETE
+
+- [x] **P3.8.1 — Routing audit log** (`src/lib/engine/eventLogger.ts`)
+  - Every `evaluateLeadAction()` call writes a `routing_decision` event to `lead_events`
+  - Payload: `{ trigger, graph_used, lead_source, persona, template_selected, template_sid, reason }`
+  - Reasons: `graph_match`, `graph_filtered_*`, `graph_unrouted`, `outside_window`, `opted_out`, `already_contacted`
+  - Non-fatal: logging failure never blocks the send path
+- [x] **P3.8.2 — Remove hardcoded fallback** (`rulesEngine.ts`)
+  - `fallbackSelectTemplate()` deleted entirely
+  - `no_match` → `markUnrouted()`: writes `messages` row (`status=unrouted`), logs event, sets `wa_state=wa_unrouted`
+  - Logic Builder is now the single routing authority
+- [x] **P3.8.3 — `EvaluatedAction.reason` field** (`logicEvaluator.ts`)
+  - All graph exit paths return a typed reason
+  - End node label drives reason: "storysells" → `graph_filtered_storysells`, "relocat" → `graph_filtered_no_relocate`, "urgency/low" → `graph_filtered_low_urgency`
+- [x] **P3.8.4 — Cycle guard in graph traversal** (`logicEvaluator.ts`)
+  - `stepGraph` carries `visited: Set<string>`; revisiting a node aborts with `no_match` + error log
+  - Prevents infinite recursion on malformed Logic Builder graphs
+- [x] **P3.8.5 — Unrouted pill in analytics** (`/admin/analytics`)
+  - `Unrouted` filter pill; grey `null` monospace badge in Status column for `status=unrouted` rows
+- [x] **P3.8.6 — Graph: urgency filter fixed** (DB update)
+  - `c3` changed from `academic_level == 10th` → `urgency == LOW` (catches all 8th/9th/10th via `computeUrgency()`)
+- [x] **P3.8.7 — Graph: persona checks flipped** (DB update)
+  - `c5`, `c7`, `c9` changed from `persona == Student` → `persona == Parent`
+  - `false` branch (including null) now defaults to student — matches stated intent "null persona = student"
+- [x] **P3.8.8 — Urgency computation: intake year** (`src/app/api/webhooks/zoho/route.ts`)
+  - `computeUrgency()` reads "When are you looking to start your business degree" (returns "2026 Intake" / "2027 Intake" / null)
+  - 2026 → HIGH, 2027 → MEDIUM, 2028+ → LOW, null → HIGH
+  - Zoho webhook field: `When_are_you_looking_to_start_your_business_degre`
+  - Zoho webhook updated 30 March 2026 — `Lead_Source` and intake year field now included
+
+---
+
+## 🟢 PHASE 3.9 — SLA ESCALATION + MANUAL CONTACT + ADMIN UI (30 March 2026) ✅ COMPLETE
+
+- [x] **P3.9.1 — Zoho task creation on SLA breach** (`src/lib/zoho.ts`)
+  - `createZohoTask(zohoLeadId, subject, description)` added alongside `updateZohoLead()`
+  - Hits `POST /crm/v2/Tasks`; links task to lead via `What_Id` + `$se_module: 'Leads'`
+  - Priority: High, Status: Not Started, Due: today
+  - Returns `boolean` — non-fatal if Zoho fails (state still updated)
+- [x] **P3.9.2 — SLA cron fully implemented** (`/api/cron/sla-monitor/route.ts`)
+  - Calls `createZohoTask()` per breach with lead name, reply class, breach time, owner in description
+  - Sets `wa_state = 'wa_sla_escalated'`, clears `wa_human_response_due_at` to prevent re-triggering
+  - Fixed `wa_closed` filter bug (was `'closed'`, now correctly `'wa_closed'`)
+  - Fetches `name` and `wa_reply_class` for meaningful task descriptions
+- [x] **P3.9.3 — SLA Monitor UI rewritten** (`/admin/sla-monitor`)
+  - Shows lead name + phone (was phone-only), hotness + reply class badges, SLA due time, countdown, Resolve button
+  - Separate Escalated section for leads where Zoho task has been created (awaiting counsellor action)
+  - 3 summary cards: Active / Breached / Escalated
+  - `SlaResolveButton` component + `/api/admin/sla-resolve` route
+- [x] **P3.9.4 — Manual contact flow** (`/api/admin/mark-manual`, `MarkManualButton`)
+  - `✎ Manual` button appears on failed outbound rows in the Message Log
+  - Inserts `messages` row (`status='manual'`), sets `wa_state='wa_manual'`, sets `wa_last_outbound_at`
+  - `wa_last_outbound_at` being set blocks the engine `already_contacted` guard from re-sending
+  - `manual` filter pill + dark badge added to Message Log
+- [x] **P3.9.5 — Control Hub updated** (`/admin`)
+  - Message Log is now a separate card (sky blue) linking directly to `?tab=messages`
+  - Template Analytics card now links to `?tab=performance` explicitly
+- [x] **P3.9.6 — Message Log table columns updated**
+  - Removed Delivered and Read columns
+  - Added Hotness column — shows hot/warm/cold badge from lead's `wa_hotness` field
+- [x] **P3.9.7 — Follow-up Logic config page** (`/admin/followup-config`)
+  - Editable UI for Rule 5 (delay hours, template, enabled toggle) and Rule 6 (delay hours, 6a/6b templates, enabled toggle)
+  - No deploy required to change settings
+- [x] **P3.9.8 — `followup_config` table** (Supabase)
+  - Single-row table with explicit typed columns for all 7 follow-up settings
+  - Migration: `supabase/migrations/20260330_followup_config.sql` — applied 30 March 2026
+- [x] **P3.9.9 — Reengagement cron made DB-driven**
+  - Reads delay hours, templates, and enabled flags from `followup_config` on each run
+  - Falls back to hardcoded defaults if table unavailable
 
 ---
 

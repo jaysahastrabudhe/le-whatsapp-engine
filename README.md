@@ -3,7 +3,7 @@
 **Production-ready WhatsApp lead engagement engine** connecting Zoho CRM ↔ Twilio WhatsApp ↔ Supabase, with automated message classification, SLA tracking, campaign management, a visual Logic Builder, and a full source×persona routing rule set.
 
 **Live URL:** [https://le-whatsapp-engine.vercel.app/admin](https://le-whatsapp-engine.vercel.app/admin)
-**Version:** 3.5.0 | **Status:** ✅ Phase 1–3.7 Complete — Engine live, campaign manager overhauled, 24h reply window + free-form reply in message log.
+**Version:** 3.9.0 | **Status:** ✅ Phase 1–3.9 Complete — Engine live, SLA escalation to Zoho live, manual contact flow, follow-up logic configurable from admin UI.
 
 ---
 
@@ -89,15 +89,17 @@ Zoho CRM ──webhook──► /api/webhooks/zoho
 
 | Page | URL | Description |
 |---|---|---|
-| **Control Hub** | `/admin` | Central dashboard — 7-card grid linking all tools |
+| **Control Hub** | `/admin` | Central dashboard — 8-card grid linking all tools |
 | **Logic Builder** | `/admin/logic-builder` | Visual drag-and-drop FSM editor (React Flow). Loads saved graph from DB on open. |
-| **SLA Monitor** | `/admin/sla-monitor` | Table of leads ticking toward or past 2h SLA deadline |
+| **SLA Monitor** | `/admin/sla-monitor` | Active/Escalated SLA tracker. Breached leads trigger Zoho Task creation. Resolve button per row. |
 | **Campaign Manager** | `/admin/campaigns` | Manage bulk WhatsApp campaigns with per-campaign funnel stats and "View details" link |
 | **Campaign Detail** | `/admin/campaigns/[id]` | Full delivery funnel (Targeted→Sent→Delivered→Read→Replied→Failed) + respondents table |
 | **Create Campaign** | `/admin/campaigns/create` | Template dropdown (from Supabase), segment filters, launches with jitter queue |
 | **Reply Classification** | `/admin/classification` | Edit keywords per reply class — no deploy needed |
-| **Template Analytics** | `/admin/analytics` | 2-tab: Template Performance + Message Log. Message Log includes 24h window pulse dot and free-form Reply button per lead |
+| **Template Analytics** | `/admin/analytics?tab=performance` | Per-template delivery %, reply %, top error codes |
+| **Message Log** | `/admin/analytics?tab=messages` | Full inbound/outbound log with hotness badge, 24h window pulse, Reply + Mark Manual buttons |
 | **WhatsApp Templates** | `/admin/templates` | Live Twilio template list with approval status and manual Refresh |
+| **Follow-up Logic** | `/admin/followup-config` | Configure Rule 5 and Rule 6 timing, templates, and enabled state — no deploy needed |
 | **Zoho Field Mapping** | `/admin/zoho-mapping` | Internal key ↔ Zoho merge tag reference table + recommended JSON for Zoho webhook setup |
 
 ---
@@ -206,6 +208,10 @@ ButtonPayload taps are detected first. Free text falls through to NLP classifier
 | `/api/admin/settings` | GET | Read a `system_settings` key (e.g. `engine_enabled`) |
 | `/api/admin/settings` | POST | Write a `system_settings` key |
 | `/api/admin/send-reply` | POST | Send a free-form WhatsApp reply within the 24h customer service window |
+| `/api/admin/mark-manual` | POST | Mark a failed lead as manually contacted from phone — blocks engine re-send |
+| `/api/admin/sla-resolve` | POST | Mark an SLA lead as resolved by counsellor |
+| `/api/admin/followup-config` | GET | Read current follow-up rule configuration |
+| `/api/admin/followup-config` | POST | Save follow-up rule configuration |
 
 ---
 
@@ -271,6 +277,7 @@ All secrets stored in **Vercel → Project Settings → Environment Variables**.
 | `campaigns` | Campaign definitions (name, template, segment, scheduled time) |
 | `campaign_leads` | Per-lead tracking within each campaign (sent/delivered/replied/failed) |
 | `classification_rules` | Keyword rules per reply class — editable from `/admin/classification` |
+| `followup_config` | Single-row config for follow-up rule timing, templates, and enabled flags |
 
 ### `leads` table — key columns
 
@@ -300,8 +307,12 @@ wa_pending → first_sent → replied → wa_hot → [counsellor handles]
                        ↘ followup_sent (24h no reply)
                                   ↘ [no further reply → cold, captured by campaigns]
              wa_manual_triage (filtered: Storysells / no relocate / low urgency)
+             wa_manual (admin marked as manually contacted from phone)
              wa_nurture (not_now reply)
              wa_closed (stop / wrong_number / DECIDED_AGAINST)
+             wa_unrouted (graph returned no_match — visible in analytics as null pill)
+             wa_sla_escalated (SLA breached — Zoho task created, awaiting counsellor)
+             wa_sla_resolved (counsellor marked as handled)
 ```
 
 ### Migrations
@@ -323,7 +334,7 @@ wa_pending → first_sent → replied → wa_hot → [counsellor handles]
 | Opt-out (`stop`) | `WA_Opt_In = false` (immediate) | Phase 1 |
 | Track selector tap | `WA_Track` picklist | Phase 1 ✅ |
 | Outbound send | `WA_State`, `WA_Last_Outbound_At`, `WA_Last_Template` | Phase 2 |
-| Hot lead | Create Zoho Task: "Call [Name]", due in 2h | Phase 2 |
+| SLA breach (hot/warm lead) | Create Zoho Task: High priority, linked to lead, due today | Phase 1 ✅ |
 
 ---
 
@@ -364,6 +375,8 @@ vercel --prod --yes
 | Phase 3.5 | ✅ Complete | lead_source field name fix, cooldown sent_at fix, dispatcher double-SID fix |
 | Phase 3.6 | ✅ Complete | Campaign manager overhaul: template dropdown, contentVariables, jitter, campaign_leads tracking, detail page + respondents |
 | Phase 3.7 | ✅ Complete | 24h reply window pulse indicator + free-form reply button in Message Log |
+| Phase 3.8 | ✅ Complete | Routing audit log, graph hardening (cycle guard, urgency fix, persona fix), hardcoded fallback removed |
+| Phase 3.9 | ✅ Complete | SLA escalation to Zoho Tasks, manual contact flow, SLA Monitor UI overhaul, admin Control Hub cards, Message Log hotness column, follow-up logic config UI |
 | Phase 3 (next) | ⚪ Planned | Cron deduplication, named flow saves, editable button map, expanded Zoho writeback |
 | Phase 4 | ⚪ Future | Multiple flows, end node differentiation, CSV contacts campaigns |
 

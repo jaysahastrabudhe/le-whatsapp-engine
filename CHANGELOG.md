@@ -5,6 +5,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.9.0] - 2026-03-30 (SLA Escalation + Manual Contact + Admin UI + Follow-up Config) (SLA Escalation + Manual Contact + Admin UI Overhaul)
+
+### Added
+- **Follow-up Logic config page** (`/admin/followup-config`) — editable UI for Rule 5 and Rule 6 settings. Toggle each rule on/off, change delay hours, swap templates via dropdown. No deploy required.
+- **`followup_config` table** (Supabase) — single-row table with explicit typed columns for all 7 follow-up settings. Migration: `supabase/migrations/20260330_followup_config.sql`.
+- **`GET/POST /api/admin/followup-config`** — reads/writes the config row. Returns hardcoded defaults if table doesn't exist (safe fallback).
+- **Follow-up Logic card** on Control Hub (`/admin`) — violet card linking to the config page.
+
+### Changed
+- **Reengagement cron** (`/api/cron/reengagement/route.ts`) — now reads all settings from `followup_config` table on each run. Delay hours, templates, and enabled flags are all DB-driven. Falls back to hardcoded defaults if table is unavailable.
+
+### Added
+- **Zoho task creation on SLA breach** (`src/lib/zoho.ts` — `createZohoTask()`) — when a hot/warm lead breaches their 2h response SLA, a High-priority Zoho Task is created and linked directly to the lead record. Task body includes lead name, reply type, breach time, and assigned owner.
+- **`/api/admin/mark-manual`** — marks a failed outbound lead as manually contacted from phone. Inserts an outbound `messages` row (`status='manual'`), sets `wa_state='wa_manual'`, and sets `wa_last_outbound_at` — which blocks the engine from auto-sending again.
+- **`MarkManualButton`** (`src/components/MarkManualButton.tsx`) — appears on failed rows in the Message Log. One click flags the lead; refreshes the table automatically.
+- **`/api/admin/sla-resolve`** — marks an active or escalated SLA lead as resolved. Sets `wa_state='wa_sla_resolved'`, clears `wa_human_response_due_at`.
+- **`SlaResolveButton`** (`src/components/SlaResolveButton.tsx`) — Resolved button in the SLA Monitor on both active and escalated rows.
+- **Message Log card** on the Control Hub (`/admin`) — separate card linking directly to `?tab=messages`.
+
+### Changed
+- **SLA cron rewritten** (`/api/cron/sla-monitor/route.ts`) — now fully implemented: calls `createZohoTask()` per breach, sets `wa_state='wa_sla_escalated'`, clears timer. Fixed `wa_closed` filter bug (was filtering `'closed'`, correct value is `'wa_closed'`).
+- **SLA Monitor UI rewritten** (`/admin/sla-monitor`) — shows lead name + phone (was phone-only), hotness + reply class badges, SLA due time, countdown, Resolve button. Separate **Escalated** section for leads where Zoho task has been created. 3 summary cards (Active / Breached / Escalated).
+- **Template Analytics card** on Control Hub now links to `?tab=performance` explicitly.
+- **Message Log table** — removed Delivered and Read columns; added **Hotness** column (hot/warm/cold badge from lead record).
+- **`manual` filter pill** added to Message Log. `manual` status badge added to `StatusBadge`.
+
+---
+
+## [3.8.0] - 2026-03-29 (Routing Audit Log + Graph Hardening + Bug Fixes)
+
+### Added
+- **Routing audit log** (`src/lib/engine/eventLogger.ts`) — every lead evaluation writes a `routing_decision` event to `lead_events` with: trigger source, graph_used flag, lead_source, persona, template selected, SID, and reason. Nothing is silent anymore.
+- **`unrouted` status in analytics** — leads that the graph cannot route now get a `messages` row with `status='unrouted'`, `wa_state='wa_unrouted'`. Visible in Message Log with a grey `null` monospace pill. New `Unrouted` filter pill added.
+- **Cycle detection in graph traversal** (`logicEvaluator.ts`) — `stepGraph` now carries a `visited: Set<string>`; hitting the same node twice aborts with `no_match` and logs an error instead of infinite recursion.
+
+### Changed
+- **Hardcoded fallback removed** (`rulesEngine.ts`) — `fallbackSelectTemplate()` deleted. If the Logic Builder graph returns `no_match`, lead is marked `wa_unrouted`, a visible message row is written, and a routing event is logged. No silent fallthrough.
+- **`EvaluatedAction.reason` field** (`logicEvaluator.ts`) — graph traversal now returns a typed reason on every exit: `graph_match`, `graph_filtered_storysells`, `graph_filtered_no_relocate`, `graph_filtered_low_urgency`, `graph_unrouted`. End node label drives reason derivation.
+- **Logic Builder graph — persona fallback subtree** — replaced `c8 false → wa_welcome_manual` (dumb catchall) with `c8 false → cP (persona == Parent?)` → parent/student branches. All leads get an explicit routing decision.
+- **Logic Builder graph — urgency filter** — `c3` changed from `academic_level == 10th` to `urgency == LOW`. Now correctly catches all 8th/9th/10th grade leads (computed by webhook) not just exact "10th" string match.
+- **Logic Builder graph — persona checks flipped** (`c5`, `c7`, `c9`) — changed from `persona == Student` to `persona == Parent` so the `false` branch (including null persona) defaults to student. Fixes "null persona → parent template" bug.
+- **Campaign status lifecycle** — `campaigns.status` no longer set to `completed` immediately on launch. Stays `running` until the process-queue cron confirms all `campaign_leads` are dispatched (pending count == 0).
+- **Urgency computation** — `computeUrgency()` now reads intake year field ("When are you looking to start your business degree") instead of school grade. `2026 Intake` → HIGH, `2027 Intake` → MEDIUM, `2028+` → LOW. Field mapping added to Zoho webhook handler.
+- **Pulse indicator + Reply button** — restricted to inbound rows only (was showing on all rows for leads in the 24h window).
+- **Free-form outbound messages** — Message Log now shows `row.content` as fallback when no template_id or SID — free-form replies sent via `/api/admin/send-reply` now display their text.
+
+### Fixed
+- `wa_welcome_meta_parent` being sent to null-persona Meta leads instead of `wa_welcome_meta_student` (persona check was inverted).
+
+---
+
 ## [3.5.0] - 2026-03-28 (24h Reply Window Indicator + Free-Form Reply)
 
 ### Added

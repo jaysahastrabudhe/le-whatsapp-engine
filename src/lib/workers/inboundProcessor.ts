@@ -103,6 +103,7 @@ export async function processInboundMessage(job: { data: Record<string, string> 
     wa_last_inbound_at: now,
     wa_opt_in:         waOptIn,
     wa_state:          waState,
+    zoho_synced_at:    null,
     ...(assignedOwner  ? { owner_email: assignedOwner } : {}),
     ...(leadTrackUpdate !== null ? { lead_track: leadTrackUpdate } : {}),
     ...(webinarRsvpUpdate !== null ? { webinar_rsvp: webinarRsvpUpdate } : {}),

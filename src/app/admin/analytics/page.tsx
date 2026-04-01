@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { getApprovedTemplates } from '@/lib/twilio/templates';
 import Link from 'next/link';
 import { ReplyButton } from '@/components/ReplyButton';
+import { MarkManualButton } from '@/components/MarkManualButton';
 
 export const revalidate = 0;
 
@@ -41,7 +42,7 @@ type MsgRow = {
   sent_at: string | null;
   delivered_at: string | null;
   read_at: string | null;
-  leads: { name: string | null; wa_last_inbound_at: string | null } | null;
+  leads: { name: string | null; wa_last_inbound_at: string | null; wa_hotness: string | null } | null;
 };
 
 const PAGE_SIZE = 50;
@@ -80,6 +81,8 @@ export default async function AnalyticsPage({ searchParams }: Props) {
         qb = qb.eq('direction', 'inbound');
       } else if (filter === 'unrouted') {
         qb = qb.eq('direction', 'outbound').eq('status', 'unrouted');
+      } else if (filter === 'manual') {
+        qb = qb.eq('direction', 'outbound').eq('status', 'manual');
       } else if (filter !== 'all') {
         qb = qb.eq('direction', 'outbound').eq('status', filter);
       }
@@ -102,7 +105,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
     const { data, error } = await applyFilters(
       supabase
         .from('messages')
-        .select('id, lead_id, direction, phone_normalised, template_id, template_variant_id, content, status, error_code, sent_at, delivered_at, read_at, leads!lead_id(name, wa_last_inbound_at)')
+        .select('id, lead_id, direction, phone_normalised, template_id, template_variant_id, content, status, error_code, sent_at, delivered_at, read_at, leads!lead_id(name, wa_last_inbound_at, wa_hotness)')
         .order('sent_at', { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1)
     );
@@ -155,7 +158,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
 
         {/* Filter bar */}
         <div className="flex flex-wrap gap-2 items-center">
-          {(['all', 'inbound', 'unrouted', 'failed', 'delivered', 'read', 'sent'] as const).map((f) => (
+          {(['all', 'inbound', 'unrouted', 'failed', 'manual', 'delivered', 'read', 'sent'] as const).map((f) => (
             <Link
               key={f}
               href={msgUrl({ filter: f, page: '1' })}
@@ -171,6 +174,12 @@ export default async function AnalyticsPage({ searchParams }: Props) {
           <span className="ml-auto text-sm text-gray-400">
             {total} message{total !== 1 ? 's' : ''}{q ? ` matching "${q}"` : ''}
           </span>
+          <a
+            href="/api/admin/export-failed"
+            className="ml-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
+          >
+            ⬇ Export Failed CSV
+          </a>
         </div>
 
         {/* Message log table */}
@@ -183,8 +192,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Status</th>
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Error</th>
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Time</th>
-                <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Delivered</th>
-                <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Read</th>
+                <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Hotness</th>
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Window</th>
               </tr>
             </thead>
@@ -246,11 +254,17 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                     <td className="p-3 text-gray-500 text-xs whitespace-nowrap">
                       {row.sent_at ? formatTime(row.sent_at) : '—'}
                     </td>
-                    <td className="p-3 text-gray-500 text-xs whitespace-nowrap">
-                      {row.delivered_at ? formatTime(row.delivered_at) : '—'}
-                    </td>
-                    <td className="p-3 text-gray-500 text-xs whitespace-nowrap">
-                      {row.read_at ? formatTime(row.read_at) : '—'}
+                    <td className="p-3">
+                      {row.leads?.wa_hotness ? (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          row.leads.wa_hotness === 'hot'  ? 'bg-red-100 text-red-700' :
+                          row.leads.wa_hotness === 'warm' ? 'bg-orange-100 text-orange-700' :
+                          row.leads.wa_hotness === 'cold' ? 'bg-blue-100 text-blue-600' :
+                          'bg-gray-100 text-gray-500'
+                        }`}>
+                          {row.leads.wa_hotness}
+                        </span>
+                      ) : <span className="text-gray-200 text-xs">—</span>}
                     </td>
                     <td className="p-3 whitespace-nowrap">
                       {isInbound && inWindow && row.lead_id && row.phone_normalised ? (
@@ -265,6 +279,11 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                             leadName={row.leads?.name || row.phone_normalised}
                           />
                         </div>
+                      ) : !isInbound && row.status === 'failed' && row.lead_id && row.phone_normalised ? (
+                        <MarkManualButton
+                          leadId={row.lead_id}
+                          phoneNormalised={row.phone_normalised}
+                        />
                       ) : (
                         <span className="text-gray-200 text-xs">—</span>
                       )}
@@ -514,6 +533,7 @@ function StatusBadge({ status }: { status: string | null }) {
     read:      'bg-green-100 text-green-700',
     failed:    'bg-red-100 text-red-700',
     unrouted:  'bg-gray-100 text-gray-400',
+    manual:    'bg-gray-800 text-white',
   };
   const s = status ?? 'unknown';
   return (

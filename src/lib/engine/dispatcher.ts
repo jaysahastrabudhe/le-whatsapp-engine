@@ -153,6 +153,7 @@ export async function dispatchMessage(opts: DispatchOptions) {
             wa_last_template:    opts.templateName || null,
             wa_last_twilio_sid:  message.sid,
             wa_last_status:      'sent',
+            zoho_synced_at:      null,
           })
           .eq('id', finalLeadId);
       }

@@ -58,7 +58,7 @@ export default function AdminDashboardPage() {
           </div>
         </Link>
 
-        <Link href="/admin/analytics" className="group block">
+        <Link href="/admin/analytics?tab=performance" className="group block">
           <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-purple-500 transition-all">
             <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-lg flex items-center justify-center mb-4">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -67,6 +67,18 @@ export default function AdminDashboardPage() {
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-purple-600 transition-colors">Template Analytics</h3>
             <p className="text-gray-500 text-sm">Reply rates, delivery rates, and performance breakdown per WhatsApp template.</p>
+          </div>
+        </Link>
+
+        <Link href="/admin/analytics?tab=messages" className="group block">
+          <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-sky-500 transition-all">
+            <div className="w-12 h-12 bg-sky-100 text-sky-600 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-sky-600 transition-colors">Message Log</h3>
+            <p className="text-gray-500 text-sm">Full inbound and outbound message history with status, reply classification, and manual follow-up tools.</p>
           </div>
         </Link>
 
@@ -82,6 +94,18 @@ export default function AdminDashboardPage() {
           </div>
         </Link>
 
+        <Link href="/admin/followup-config" className="group block">
+          <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-violet-500 transition-all">
+            <div className="w-12 h-12 bg-violet-100 text-violet-600 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-violet-600 transition-colors">Follow-up Logic</h3>
+            <p className="text-gray-500 text-sm">Configure timing and templates for automated follow-up rules. Enable/disable Rule 5 and Rule 6 without a deploy.</p>
+          </div>
+        </Link>
+
         <Link href="/admin/zoho-mapping" className="group block">
           <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-indigo-500 transition-all">
             <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center mb-4">
@@ -91,6 +115,18 @@ export default function AdminDashboardPage() {
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-indigo-600 transition-colors">Zoho Field Mapping</h3>
             <p className="text-gray-500 text-sm">Review how Zoho CRM lead fields map to the engine's internal schema and get the recommended JSON payload.</p>
+          </div>
+        </Link>
+
+        <Link href="/admin/import-replies" className="group block">
+          <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-amber-500 transition-all">
+            <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-amber-600 transition-colors">Import / Export CSV</h3>
+            <p className="text-gray-500 text-sm">Export failed messages for manual sending via WA Desktop, then import replies back with auto-classification.</p>
           </div>
         </Link>
 

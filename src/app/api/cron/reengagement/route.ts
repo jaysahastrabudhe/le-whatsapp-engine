@@ -3,18 +3,15 @@ import { supabase } from '@/lib/supabase';
 import { enqueueOutboundMessage } from '@/lib/queue/client';
 import { getTwilioTemplateSid } from '@/lib/twilio/templates';
 import { isWithinSendWindow } from '@/lib/engine/sessionWindow';
+import { FOLLOWUP_DEFAULTS } from '@/app/api/admin/followup-config/route';
 
 const PRIMARY_SENDER = '+917709333161';
 
-/**
- * Follow-up sweep — runs on the same cron-job.org schedule as before (every few minutes).
- *
- * Rule 5: wa_state = 'first_sent', no inbound reply after 24 h → send wa_followup_1
- *         Hard stop: max 2 outbound before any reply (enforced by dispatcher).
- *
- * Rule 6a: wa_state = 'replied', 48 h silence, lead_track IS NULL → send wa_track_selector
- * Rule 6b: wa_state = 'replied', 48 h silence, lead_track IS NOT NULL → send wa_followup_2_quickreply
- */
+async function getFollowupConfig() {
+  const { data } = await supabase.from('followup_config').select('*').eq('id', 1).single();
+  return { ...FOLLOWUP_DEFAULTS, ...data };
+}
+
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -27,123 +24,156 @@ export async function GET(request: Request) {
 
   console.log('[Cron] Follow-up sweep starting...');
 
+  const cfg = await getFollowupConfig();
   const now = Date.now();
-  const h24ago = new Date(now - 24 * 60 * 60 * 1000).toISOString();
-  const h48ago = new Date(now - 48 * 60 * 60 * 1000).toISOString();
+  const rule5cutoff = new Date(now - cfg.rule5_delay_hours * 60 * 60 * 1000).toISOString();
+  const rule6cutoff = new Date(now - cfg.rule6_delay_hours * 60 * 60 * 1000).toISOString();
   const results: string[] = [];
 
-  // ── Rule 5: 24h no-reply follow-up ───────────────────────────────────────
-  const { data: rule5Leads } = await supabase
-    .from('leads')
-    .select('id, phone_normalised, name')
-    .eq('wa_state', 'first_sent')
-    .eq('wa_opt_in', true)
-    .lt('wa_last_outbound_at', h24ago)
-    .is('wa_last_inbound_at', null)
-    .limit(50);
+  // ── Rule 5: no-reply follow-up ────────────────────────────────────────────
+  if (!cfg.rule5_enabled) {
+    console.log('[Cron Rule5] Disabled — skipping.');
+  } else {
+    const { data: rule5Leads } = await supabase
+      .from('leads')
+      .select('id, phone_normalised, name')
+      .eq('wa_state', 'first_sent')
+      .eq('wa_opt_in', true)
+      .lt('wa_last_outbound_at', rule5cutoff)
+      .is('wa_last_inbound_at', null)
+      .limit(50);
 
-  for (const lead of rule5Leads ?? []) {
-    try {
-      const contentSid = await getTwilioTemplateSid('wa_followup_1');
-      if (!contentSid) {
-        console.warn(`[Cron Rule5] wa_followup_1 SID not found — skipping ${lead.phone_normalised}`);
-        continue;
+    for (const lead of rule5Leads ?? []) {
+      try {
+        const contentSid = await getTwilioTemplateSid(cfg.rule5_template);
+        if (!contentSid) {
+          console.warn(`[Cron Rule5] ${cfg.rule5_template} SID not found — skipping ${lead.phone_normalised}`);
+          continue;
+        }
+        const { error: stateErr } = await supabase
+          .from('leads')
+          .update({
+            wa_state:            'followup_sent',
+            wa_last_outbound_at: new Date().toISOString(),
+            wa_last_template:    cfg.rule5_template,
+          })
+          .eq('id', lead.id)
+          .eq('wa_state', 'first_sent');
+
+        if (stateErr) {
+          console.warn(`[Cron Rule5] Optimistic lock failed for ${lead.phone_normalised} — skipping`);
+          continue;
+        }
+
+        await enqueueOutboundMessage({
+          to:               lead.phone_normalised,
+          from:             PRIMARY_SENDER,
+          contentSid,
+          templateName:     cfg.rule5_template,
+          leadId:           lead.id,
+          contentVariables: JSON.stringify({ '1': lead.name ?? 'there' }),
+        });
+        results.push(`rule5:${lead.phone_normalised}`);
+      } catch (err) {
+        console.error(`[Cron Rule5] Failed for ${lead.phone_normalised}`, err);
       }
-      await enqueueOutboundMessage({
-        to:               lead.phone_normalised,
-        from:             PRIMARY_SENDER,
-        contentSid,
-        templateName:     'wa_followup_1',
-        leadId:           lead.id,
-        contentVariables: JSON.stringify({ "1": lead.name ?? 'there' }),
-      });
-      await supabase
-        .from('leads')
-        .update({ 
-          wa_state: 'followup_sent', 
-          wa_last_outbound_at: new Date().toISOString(),
-          wa_last_template: 'wa_followup_1' 
-        })
-        .eq('id', lead.id);
-      results.push(`rule5:${lead.phone_normalised}`);
-    } catch (err) {
-      console.error(`[Cron Rule5] Failed for ${lead.phone_normalised}`, err);
     }
   }
 
-  // ── Rule 6a: 48h post-reply silence, no track set → wa_track_selector ─────
-  const { data: rule6aLeads } = await supabase
-    .from('leads')
-    .select('id, phone_normalised, name')
-    .eq('wa_state', 'replied')
-    .eq('wa_opt_in', true)
-    .lt('wa_last_inbound_at', h48ago)
-    .is('lead_track', null)
-    .limit(50);
+  // ── Rule 6a & 6b: post-reply silence ─────────────────────────────────────
+  if (!cfg.rule6_enabled) {
+    console.log('[Cron Rule6] Disabled — skipping.');
+  } else {
+    const { data: rule6aLeads } = await supabase
+      .from('leads')
+      .select('id, phone_normalised, name')
+      .eq('wa_state', 'replied')
+      .eq('wa_opt_in', true)
+      .lt('wa_last_inbound_at', rule6cutoff)
+      .or('wa_last_outbound_at.is.null,wa_last_outbound_at.lt.wa_last_inbound_at')
+      .is('lead_track', null)
+      .limit(50);
 
-  for (const lead of rule6aLeads ?? []) {
-    try {
-      const contentSid = await getTwilioTemplateSid('wa_track_selector');
-      if (!contentSid) {
-        console.warn(`[Cron Rule6a] wa_track_selector SID not found — skipping ${lead.phone_normalised}`);
-        continue;
+    for (const lead of rule6aLeads ?? []) {
+      try {
+        const contentSid = await getTwilioTemplateSid(cfg.rule6a_template);
+        if (!contentSid) {
+          console.warn(`[Cron Rule6a] ${cfg.rule6a_template} SID not found — skipping ${lead.phone_normalised}`);
+          continue;
+        }
+        const { error: stateErr } = await supabase
+          .from('leads')
+          .update({
+            wa_state:            'track_selector_sent',
+            wa_last_outbound_at: new Date().toISOString(),
+            wa_last_template:    cfg.rule6a_template,
+          })
+          .eq('id', lead.id)
+          .eq('wa_state', 'replied'); // Optimistic lock
+
+        if (stateErr) {
+          console.warn(`[Cron Rule6a] Optimistic lock failed for ${lead.phone_normalised} — skipping`);
+          continue;
+        }
+
+        await enqueueOutboundMessage({
+          to:               lead.phone_normalised,
+          from:             PRIMARY_SENDER,
+          contentSid,
+          templateName:     cfg.rule6a_template,
+          leadId:           lead.id,
+          contentVariables: JSON.stringify({ '1': lead.name ?? 'there' }),
+        });
+        results.push(`rule6a:${lead.phone_normalised}`);
+      } catch (err) {
+        console.error(`[Cron Rule6a] Failed for ${lead.phone_normalised}`, err);
       }
-      await enqueueOutboundMessage({
-        to:               lead.phone_normalised,
-        from:             PRIMARY_SENDER,
-        contentSid,
-        templateName:     'wa_track_selector',
-        leadId:           lead.id,
-        contentVariables: JSON.stringify({ "1": lead.name ?? 'there' }),
-      });
-      await supabase
-        .from('leads')
-        .update({ 
-          wa_last_outbound_at: new Date().toISOString(),
-          wa_last_template: 'wa_track_selector'
-        })
-        .eq('id', lead.id);
-      results.push(`rule6a:${lead.phone_normalised}`);
-    } catch (err) {
-      console.error(`[Cron Rule6a] Failed for ${lead.phone_normalised}`, err);
     }
-  }
 
-  // ── Rule 6b: 48h post-reply silence, track already set → wa_followup_2 ───
-  const { data: rule6bLeads } = await supabase
-    .from('leads')
-    .select('id, phone_normalised, name')
-    .eq('wa_state', 'replied')
-    .eq('wa_opt_in', true)
-    .lt('wa_last_inbound_at', h48ago)
-    .not('lead_track', 'is', null)
-    .limit(50);
+    const { data: rule6bLeads } = await supabase
+      .from('leads')
+      .select('id, phone_normalised, name')
+      .eq('wa_state', 'replied')
+      .eq('wa_opt_in', true)
+      .neq('wa_state', 'track_selector_sent')
+      .lt('wa_last_inbound_at', rule6cutoff)
+      .or('wa_last_outbound_at.is.null,wa_last_outbound_at.lt.wa_last_inbound_at')
+      .not('lead_track', 'is', null)
+      .limit(50);
 
-  for (const lead of rule6bLeads ?? []) {
-    try {
-      const contentSid = await getTwilioTemplateSid('wa_followup_2_quickreply');
-      if (!contentSid) {
-        console.warn(`[Cron Rule6b] wa_followup_2_quickreply SID not found — skipping ${lead.phone_normalised}`);
-        continue;
+    for (const lead of rule6bLeads ?? []) {
+      try {
+        const contentSid = await getTwilioTemplateSid(cfg.rule6b_template);
+        if (!contentSid) {
+          console.warn(`[Cron Rule6b] ${cfg.rule6b_template} SID not found — skipping ${lead.phone_normalised}`);
+          continue;
+        }
+        const { error: stateErr } = await supabase
+          .from('leads')
+          .update({
+            wa_last_outbound_at: new Date().toISOString(),
+            wa_last_template:    cfg.rule6b_template,
+          })
+          .eq('id', lead.id)
+          .eq('wa_state', 'replied'); // Optimistic lock
+
+        if (stateErr) {
+          console.warn(`[Cron Rule6b] Optimistic lock failed for ${lead.phone_normalised} — skipping`);
+          continue;
+        }
+
+        await enqueueOutboundMessage({
+          to:               lead.phone_normalised,
+          from:             PRIMARY_SENDER,
+          contentSid,
+          templateName:     cfg.rule6b_template,
+          leadId:           lead.id,
+          contentVariables: JSON.stringify({ '1': lead.name ?? 'there' }),
+        });
+        results.push(`rule6b:${lead.phone_normalised}`);
+      } catch (err) {
+        console.error(`[Cron Rule6b] Failed for ${lead.phone_normalised}`, err);
       }
-      await enqueueOutboundMessage({
-        to:               lead.phone_normalised,
-        from:             PRIMARY_SENDER,
-        contentSid,
-        templateName:     'wa_followup_2_quickreply',
-        leadId:           lead.id,
-        contentVariables: JSON.stringify({ "1": lead.name ?? 'there' }),
-      });
-      await supabase
-        .from('leads')
-        .update({ 
-          wa_last_outbound_at: new Date().toISOString(),
-          wa_last_template: 'wa_followup_2_quickreply'
-        })
-        .eq('id', lead.id);
-      results.push(`rule6b:${lead.phone_normalised}`);
-    } catch (err) {
-      console.error(`[Cron Rule6b] Failed for ${lead.phone_normalised}`, err);
     }
   }
 

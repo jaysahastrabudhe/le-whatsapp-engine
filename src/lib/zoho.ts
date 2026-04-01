@@ -9,7 +9,10 @@ export interface ZohoUpdatePayload {
   WA_Reply_Class?: string;
   WA_Hotness?: string;
   WA_Last_Inbound_At?: string;
+  WA_Last_Outbound_At?: string;
+  WA_Last_Template?: string;
   WA_Opt_In?: boolean;
+  WA_State?: string;
   WA_Track?: string;
 }
 
@@ -61,6 +64,57 @@ export async function getZohoAccessToken(): Promise<string | null> {
   } catch (err) {
     console.error('[Zoho] Failed to refresh access token:', err);
     return null;
+  }
+}
+
+/**
+ * Creates a high-priority task in Zoho CRM linked to a lead.
+ */
+export async function createZohoTask(zohoLeadId: string, subject: string, description: string): Promise<boolean> {
+  const token = await getZohoAccessToken();
+  if (!token) return false;
+
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  console.log(`[Zoho Task] Creating task for lead ${zohoLeadId}: "${subject}"`);
+
+  try {
+    const res = await fetch(`${ZOHO_BASE_URL}/Tasks`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        data: [{
+          Subject:      subject,
+          Due_Date:     today,
+          Priority:     'High',
+          Status:       'Not Started',
+          What_Id:      { id: zohoLeadId },
+          $se_module:   'Leads',
+          Description:  description,
+        }],
+      }),
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(`Zoho Tasks API Error: ${res.status} ${JSON.stringify(errData)}`);
+    }
+
+    const result = await res.json();
+    if (result.data && result.data[0].status === 'success') {
+      console.log(`[Zoho Task] Created successfully for lead ${zohoLeadId}`);
+      return true;
+    } else {
+      console.warn(`[Zoho Task] Unexpected response for ${zohoLeadId}:`, JSON.stringify(result));
+      return false;
+    }
+  } catch (err) {
+    console.error(`[Zoho Task] Failed to create task for lead ${zohoLeadId}:`, err);
+    return false;
   }
 }
 

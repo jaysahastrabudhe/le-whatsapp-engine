@@ -38,6 +38,7 @@ export const WORKFLOW_STATES = [
   'wa_read',
   'wa_manual_triage',
   'wa_closed',
+  'track_selector_sent',
   'wa_human_handoff',
 ];
 
@@ -66,7 +67,7 @@ export const FIELD_VALUES: Record<string, string[]> = {
   lead_track:       ['enterprise_leadership', 'family_business', 'venture_builder'],
   wa_hotness:       ['hot', 'warm', 'cold', 'dead'],
   wa_reply_class:   ['interested', 'fee_question', 'not_now', 'wrong_number', 'stop', 'other'],
-  wa_state:         [...['wa_pending', 'first_sent', 'followup_sent', 'replied', 'wa_hot', 'wa_nurture', 'wa_closed']],
+  wa_state:         [...['wa_pending', 'first_sent', 'followup_sent', 'track_selector_sent', 'replied', 'wa_hot', 'wa_nurture', 'wa_closed']],
 };
 
 // Lead Source common values (kept for backwards compat with Builder)
