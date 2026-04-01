@@ -3,7 +3,7 @@
 **Production-ready WhatsApp lead engagement engine** connecting Zoho CRM ↔ Twilio WhatsApp ↔ Supabase, with automated message classification, SLA tracking, campaign management, a visual Logic Builder, and a full source×persona routing rule set.
 
 **Live URL:** [https://le-whatsapp-engine.vercel.app/admin](https://le-whatsapp-engine.vercel.app/admin)
-**Version:** 3.9.0 | **Status:** ✅ Phase 1–3.9 Complete — Engine live, SLA escalation to Zoho live, manual contact flow, follow-up logic configurable from admin UI.
+**Version:** 4.0.0 | **Status:** ✅ Phase 1–4.0 Complete — Engine live, follow-up dedup fixed, Zoho batch writeback, CSV export/import for failed messages.
 
 ---
 
@@ -89,7 +89,7 @@ Zoho CRM ──webhook──► /api/webhooks/zoho
 
 | Page | URL | Description |
 |---|---|---|
-| **Control Hub** | `/admin` | Central dashboard — 8-card grid linking all tools |
+| **Control Hub** | `/admin` | Central dashboard — 10-card grid linking all tools |
 | **Logic Builder** | `/admin/logic-builder` | Visual drag-and-drop FSM editor (React Flow). Loads saved graph from DB on open. |
 | **SLA Monitor** | `/admin/sla-monitor` | Active/Escalated SLA tracker. Breached leads trigger Zoho Task creation. Resolve button per row. |
 | **Campaign Manager** | `/admin/campaigns` | Manage bulk WhatsApp campaigns with per-campaign funnel stats and "View details" link |
@@ -101,6 +101,7 @@ Zoho CRM ──webhook──► /api/webhooks/zoho
 | **WhatsApp Templates** | `/admin/templates` | Live Twilio template list with approval status and manual Refresh |
 | **Follow-up Logic** | `/admin/followup-config` | Configure Rule 5 and Rule 6 timing, templates, and enabled state — no deploy needed |
 | **Zoho Field Mapping** | `/admin/zoho-mapping` | Internal key ↔ Zoho merge tag reference table + recommended JSON for Zoho webhook setup |
+| **Import / Export CSV** | `/admin/import-replies` | Export failed messages as CSV with wa.me links; import manual replies with auto-classification and Zoho sync |
 
 ---
 
@@ -195,7 +196,7 @@ ButtonPayload taps are detected first. Free text falls through to NLP classifier
 |---|---|---|---|
 | `/api/cron/process-queue` | GET | Every 1 min | Drain Redis queue — inbound classify, outbound dispatch, status update |
 | `/api/cron/sla-monitor` | GET/POST | Every 5 min | Escalate leads past `wa_human_response_due_at` |
-| `/api/cron/zoho-reconcile` | GET/POST | Every 60 min | Batch-sync missed WA state writebacks to Zoho |
+| `/api/cron/zoho-reconcile` | GET/POST | Every 60 min | Batch-sync dirty leads (outbound + inbound fields) to Zoho |
 | `/api/cron/reengagement` | GET | Daily 11:30 AM | Rules 5 & 6 follow-up sweep (24h no-reply + 48h post-reply) |
 
 ### Admin API
@@ -210,6 +211,10 @@ ButtonPayload taps are detected first. Free text falls through to NLP classifier
 | `/api/admin/send-reply` | POST | Send a free-form WhatsApp reply within the 24h customer service window |
 | `/api/admin/mark-manual` | POST | Mark a failed lead as manually contacted from phone — blocks engine re-send |
 | `/api/admin/sla-resolve` | POST | Mark an SLA lead as resolved by counsellor |
+| `/api/admin/export-failed` | GET | Download CSV of all failed outbound messages with wa.me links |
+| `/api/admin/import-replies` | POST | Commit confirmed CSV import rows to Supabase |
+| `/api/admin/import-replies/preview` | POST | Auto-classify CSV rows and return enriched preview |
+| `/api/admin/import-replies/history` | GET | Last 10 import/export audit logs |
 | `/api/admin/followup-config` | GET | Read current follow-up rule configuration |
 | `/api/admin/followup-config` | POST | Save follow-up rule configuration |
 
@@ -255,8 +260,8 @@ All secrets stored in **Vercel → Project Settings → Environment Variables**.
 - Workflow Rules on Leads module POST to `/api/webhooks/zoho`
 - Include `x-zoho-signature` header (HMAC SHA256 of body with shared secret)
 - **Fields to send:** `zoho_lead_id`, `phone`, `name`, `email`, `lead_source`, `campaign_name`, `owner_email`, `program`, `persona`, `academic_level`, `relocate_to_pune`
-- **Zoho custom fields required:** `WA_Opt_In`, `WA_State`, `WA_Hotness`, `WA_Reply_Class`, `WA_Last_Inbound_At`, `WA_Track`
-- **Writeback:** Core fields written after inbound processing (Phase 1). Full writeback + Zoho Tasks in Phase 2.
+- **Zoho custom fields required:** `WA_Opt_In`, `WA_State`, `WA_Hotness`, `WA_Reply_Class`, `WA_Last_Inbound_At`, `WA_Track`, `WA_Last_Outbound_At`, `WA_Last_Template`
+- **Writeback:** Inbound fields written inline; outbound fields synced hourly via `zoho-reconcile` cron.
 
 ### cron-job.org
 - 4 cron jobs configured (see table above)
@@ -277,6 +282,7 @@ All secrets stored in **Vercel → Project Settings → Environment Variables**.
 | `campaigns` | Campaign definitions (name, template, segment, scheduled time) |
 | `campaign_leads` | Per-lead tracking within each campaign (sent/delivered/replied/failed) |
 | `classification_rules` | Keyword rules per reply class — editable from `/admin/classification` |
+| `csv_imports` | Audit log for CSV imports and exports (row counts, results, filenames) |
 | `followup_config` | Single-row config for follow-up rule timing, templates, and enabled flags |
 
 ### `leads` table — key columns
@@ -299,12 +305,14 @@ All secrets stored in **Vercel → Project Settings → Environment Variables**.
 | `wa_last_outbound_at` | TIMESTAMPTZ | Last outbound message time |
 | `wa_last_inbound_at` | TIMESTAMPTZ | Last inbound message time |
 | `wa_human_response_due_at` | TIMESTAMPTZ | SLA deadline for counsellor response |
+| `zoho_synced_at` | TIMESTAMPTZ | NULL = needs Zoho sync; set by reconcile cron after successful write |
 
 ### `wa_state` lifecycle
 
 ```
 wa_pending → first_sent → replied → wa_hot → [counsellor handles]
                        ↘ followup_sent (24h no reply)
+                       ↘ track_selector_sent (Rule 6a — wa_track_selector sent)
                                   ↘ [no further reply → cold, captured by campaigns]
              wa_manual_triage (filtered: Storysells / no relocate / low urgency)
              wa_manual (admin marked as manually contacted from phone)
@@ -323,18 +331,22 @@ wa_pending → first_sent → replied → wa_hot → [counsellor handles]
 - `supabase/migrations/20260326_seed_workflow.sql` — Rules 1–4 decision graph seeded into workflow_rules
 - `supabase/migrations/20260327_system_settings.sql` — `system_settings` table for global engine configuration (Kill Switch)
 - `supabase/migrations/20260327_messages_error_code.sql` — adds `error_code` and `phone_normalised` columns to `messages` table; adds performance indexes
+- `supabase/migrations/20260330_followup_config.sql` — `followup_config` single-row table for Rule 5/6 settings
+- `supabase/migrations/20260401_zoho_sync_flag.sql` — adds `zoho_synced_at` to `leads` for batched Zoho writeback
+- `supabase/migrations/20260401_csv_imports.sql` — `csv_imports` audit table for import/export tracking
 
 ---
 
 ## Zoho Writeback
 
-| Trigger | Fields written | Phase |
+| Trigger | Fields written | Method |
 |---|---|---|
-| Inbound reply classified | `WA_Reply_Class`, `WA_Hotness`, `WA_Last_Inbound_At` | Phase 1 |
-| Opt-out (`stop`) | `WA_Opt_In = false` (immediate) | Phase 1 |
-| Track selector tap | `WA_Track` picklist | Phase 1 ✅ |
-| Outbound send | `WA_State`, `WA_Last_Outbound_At`, `WA_Last_Template` | Phase 2 |
-| SLA breach (hot/warm lead) | Create Zoho Task: High priority, linked to lead, due today | Phase 1 ✅ |
+| Inbound reply classified | `WA_Reply_Class`, `WA_Hotness`, `WA_Last_Inbound_At` | Inline (async) |
+| Opt-out (`stop`) | `WA_Opt_In = false` (immediate) | Inline |
+| Track selector tap | `WA_Track` picklist | Inline |
+| Outbound send | `WA_State`, `WA_Last_Outbound_At`, `WA_Last_Template` | Batch (hourly reconcile cron) |
+| CSV import reply | `WA_Reply_Class`, `WA_Hotness`, `WA_State`, `WA_Last_Inbound_At`, `WA_Opt_In` | Batch (hourly reconcile cron) |
+| SLA breach (hot/warm lead) | Create Zoho Task: High priority, linked to lead, due today | Inline |
 
 ---
 
@@ -377,8 +389,9 @@ vercel --prod --yes
 | Phase 3.7 | ✅ Complete | 24h reply window pulse indicator + free-form reply button in Message Log |
 | Phase 3.8 | ✅ Complete | Routing audit log, graph hardening (cycle guard, urgency fix, persona fix), hardcoded fallback removed |
 | Phase 3.9 | ✅ Complete | SLA escalation to Zoho Tasks, manual contact flow, SLA Monitor UI overhaul, admin Control Hub cards, Message Log hotness column, follow-up logic config UI |
-| Phase 3 (next) | ⚪ Planned | Cron deduplication, named flow saves, editable button map, expanded Zoho writeback |
-| Phase 4 | ⚪ Future | Multiple flows, end node differentiation, CSV contacts campaigns |
+| Phase 4.0 | ✅ Complete | Follow-up dedup (optimistic locking), expanded Zoho batch writeback, CSV export/import for failed messages + manual replies |
+| Phase 4 (next) | ⚪ Planned | Named flow saves, editable button map, campaign reply awareness |
+| Phase 5 | ⚪ Future | Multiple flows, end node differentiation, CSV contacts campaigns |
 
 ---
 

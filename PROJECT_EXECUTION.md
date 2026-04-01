@@ -1,8 +1,8 @@
 # LE WhatsApp Automation — Project Execution Tracker
 **Project:** ZOHO + Twilio WhatsApp Lead Engagement Engine
 **Started:** 23 March 2026
-**Last Updated:** 30 March 2026
-**Status:** 🟢 PHASE 1, 2, 3.3–3.9 COMPLETE — Engine live; SLA escalation to Zoho live; manual contact flow live; admin UI overhauled; follow-up logic fully configurable.
+**Last Updated:** 1 April 2026
+**Status:** 🟢 PHASE 1, 2, 3.3–4.0 COMPLETE — Engine live; follow-up dedup fixed; Zoho batch writeback active; CSV export/import for failed messages.
 
 > **How to use this file**
 > - Mark tasks `[x]` when done, `[~]` when in progress, `[!]` when blocked
@@ -29,8 +29,9 @@
 | **Phase 3.7 — 24h Window + Free-Form Reply** | **4** | **4** | **0** | **0** |
 | **Phase 3.8 — Routing Audit + Graph Hardening** | **8** | **8** | **0** | **0** |
 | **Phase 3.9 — SLA Escalation + Manual Contact + UI + Follow-up Config** | **9** | **9** | **0** | **0** |
-| Phase 3 — Next Sprint | 7 | 0 | 0 | 0 |
-| Phase 4 — Future | 5 | 0 | 0 | 0 |
+| **Phase 4.0 — Dedup + Zoho Writeback + CSV Export/Import** | **9** | **9** | **0** | **0** |
+| Phase 4 — Next Sprint | 4 | 0 | 0 | 0 |
+| Phase 5 — Future | 5 | 0 | 0 | 0 |
 
 ---
 
@@ -370,41 +371,61 @@
 
 ---
 
-## 🟠 PHASE 3 — NEXT SPRINT
+## 🟢 PHASE 4.0 — DEDUP + ZOHO WRITEBACK + CSV EXPORT/IMPORT (1 April 2026) ✅ COMPLETE
 
-- [ ] **P2.1 — Follow-up cron deduplication**
-  - Set new `wa_state` atomically *before* enqueuing in Rules 5 & 6 (not after).
-  - Prevents a lead from being matched again on the next cron run while still in the dispatch queue.
+- [x] **P4.0.1 — Follow-up cron deduplication**
+  - Rule 5: `UPDATE SET wa_state = 'followup_sent' WHERE wa_state = 'first_sent'` **before** enqueue. Optimistic lock — if another cron run already grabbed the lead, update affects 0 rows → skip.
+  - Rule 6a: Sets `wa_state = 'track_selector_sent'` before enqueue (new state added to `WORKFLOW_STATES`).
+  - Rule 6b: Adds `.eq('wa_state', 'replied')` optimistic lock before enqueue.
+- [x] **P4.0.2 — Rule 6 double-send guard**
+  - Both Rule 6a and 6b queries now include `wa_last_outbound_at < wa_last_inbound_at` check.
+  - Rule 6b query excludes `wa_state = 'track_selector_sent'` to prevent cross-contamination.
+- [x] **P4.0.3 — Expanded Zoho writeback (batch)**
+  - `zoho_synced_at TIMESTAMPTZ` column added to `leads` (NULL = dirty).
+  - Dispatcher sets `zoho_synced_at = null` after successful send.
+  - Inbound processor sets `zoho_synced_at = null` after classification.
+  - `zoho-reconcile` cron picks up dirty leads, writes `WA_State`, `WA_Last_Outbound_At`, `WA_Last_Template`, plus `WA_Reply_Class`, `WA_Hotness`, `WA_Last_Inbound_At`, `WA_Opt_In` if present.
+  - `ZohoUpdatePayload` type expanded with new fields.
+- [x] **P4.0.4 — CSV export of failed messages**
+  - `GET /api/admin/export-failed` — returns CSV with name, phone, wa.me link, template body, error code + label, failed at, lead ID.
+  - "⬇ Export Failed CSV" button added to Message Log filter bar.
+- [x] **P4.0.5 — CSV import of manual replies**
+  - `/admin/import-replies` page: upload CSV → auto-classify → editable preview → confirm import.
+  - `POST /api/admin/import-replies/preview` — normalise phones, match to leads, NLP classify.
+  - `POST /api/admin/import-replies` — commit: update leads, insert messages, log events, set `zoho_synced_at = null`.
+  - Deduplication: skips if same phone + reply text already exists as an inbound message.
+- [x] **P4.0.6 — Import audit log**
+  - `csv_imports` Supabase table — tracks every import and export (type, filename, row_count, success_count, fail_count, details JSONB).
+  - `GET /api/admin/import-replies/history` — returns last 10 logs.
+  - History shown at the bottom of the import page.
+- [x] **P4.0.7 — Admin hub: Import/Export card** — Amber card linking to `/admin/import-replies`.
+- [x] **P4.0.8 — Zoho CRM field setup** — `track_selector_sent` added to `WA_State` picklist. `WA_Last_Outbound_At` (DateTime) and `WA_Last_Template` (Single-Line Text) created.
+- [x] **P4.0.9 — Supabase migrations** — `20260401_zoho_sync_flag.sql` and `20260401_csv_imports.sql` applied.
 
-- [ ] **P2.2 — Rule 6 double-send guard**
-  - Add `wa_last_outbound_at < wa_last_inbound_at` check to Rule 6 query.
-  - Prevents a lead who already received `wa_track_selector` from also getting `wa_followup_2_quickreply` 48h later.
+---
 
-- [ ] **P2.3 — Named flow save/open in Logic Builder**
+## 🟠 PHASE 4 — NEXT SPRINT
+
+- [ ] **P4.1 — Named flow save/open in Logic Builder**
   - Allow multiple `workflow_rules` rows. One row `is_active = true` evaluated at runtime.
   - UI additions: flow list panel (list / open / duplicate / create new), active/draft toggle, flow name editing.
   - Enables versioning and A/B draft testing of routing logic.
 
-- [ ] **P2.4 — Editable button payload map**
+- [ ] **P4.2 — Editable button payload map**
   - Admin UI (similar to `/admin/classification`) where button postback IDs are mapped to reply class, hotness, state transition, and special actions (`lead_track`, `webinar_rsvp`, counsellor flag).
   - Eliminates code change requirement for every new quick reply template.
 
-- [ ] **P2.5 — Campaign reply awareness**
+- [ ] **P4.3 — Campaign reply awareness**
   - Use `wa_last_template` in `inboundProcessor` to suppress specific downstream actions for campaign-originated replies.
   - Specifically: `WEBINAR_YES` tap → flag counsellor but do NOT auto-send `wa_counsellor_intro` (counsellor sends joining details manually).
 
-- [ ] **P2.6 — Expanded Zoho writeback**
-  - After outbound send: write `WA_State`, `WA_Last_Outbound_At`, `WA_Last_Template`.
-  - On track selector tap: write `WA_Track` picklist value.
-  - On hot lead: create Zoho Task ("Call [Name] — WA Hot Lead", due in 2h, assigned to owner).
-
-- [ ] **P2.7 — Storysells proper template**
+- [ ] **P4.4 — Storysells proper template**
   - Create a Storysells-specific WhatsApp template in Twilio and get it approved.
   - Update Logic Builder routing: `program = Storysells` → new Storysells template (replace `wa_welcome_manual` placeholder).
 
 ---
 
-## ⚪ PHASE 3 — FUTURE
+## ⚪ PHASE 5 — FUTURE
 
 - [ ] **P3.1 — Multiple independent flows**
   - Support more than one active flow evaluated in parallel (e.g., BBA Pune flow, Storysells flow).
@@ -475,6 +496,9 @@
 | 25 Mar | Content API template delivery | Must use `messagingServiceSid` with Content SIDs (HX...) | Sending from bare phone number (unsupported since Apr 2025) |
 | 25 Mar | Template variable format | Omit `contentVariables` entirely when empty | Pass `contentVariables: {}` (broken — causes 63027) |
 | 25 Mar | Template discovery | Live Twilio Content API with Upstash persistent cache (no TTL — manual Admin Refresh only) | Manual `constants.ts` updates; 1hr TTL removed in Phase 2 |
+| 1 Apr | Zoho outbound writeback | Batch via `zoho-reconcile` cron (hourly) using `zoho_synced_at` dirty flag | Inline in dispatcher (blocks send path) |
+| 1 Apr | Follow-up dedup | Optimistic locking: update `wa_state` before enqueue; `.eq('wa_state', X)` acts as lock | Post-enqueue update (race condition on overlapping cron runs) |
+| 1 Apr | CSV failed leads handling | Export CSV + manual WA Desktop send + import replies back | WhatsApp Desktop automation script (ToS risk); utility fallback template |
 | 25 Mar | Reply classification | DB-driven keyword rules (`classification_rules` table, Redis cache 30min) | Hardcoded if/else |
 | 26 Mar | Rules engine architecture | Graph-first (Logic Builder), code fallback for Rules 1–4 | Hardcoded routing only |
 | 26 Mar | Welcome template routing | Source × Persona (5 paths: Meta×Student, Meta×Parent, Organic×Student, Organic×Parent, Manual) | Single template per source (no persona split) |

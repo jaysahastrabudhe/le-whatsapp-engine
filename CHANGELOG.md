@@ -5,6 +5,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [4.0.0] - 2026-04-01 (Follow-up Dedup + Zoho Batch Writeback + CSV Export/Import)
+
+### Added
+- **CSV Export of failed messages** (`GET /api/admin/export-failed`) — Downloads a CSV with lead name, phone, `wa.me` click-to-chat link, template body, error code + label, and lead ID. Accessible via "⬇ Export Failed CSV" button on the Message Log filter bar.
+- **CSV Import of manual replies** (`/admin/import-replies`) — Full admin page with:
+  - CSV upload (columns: `Phone`, `Reply Text`, `Replied At`)
+  - Auto-classification via NLP classifier with **editable dropdown** per row
+  - Confirm button commits to Supabase + marks leads dirty for Zoho reconcile
+  - Deduplication: skips if same phone + reply text already exists
+  - Results summary (imported / skipped / failed counts)
+- **Import/Export audit log** (`csv_imports` Supabase table) — Tracks every import and export with row counts, success/fail, and per-row details. Last 10 shown on the import page.
+- **Import/Export card** on Admin Control Hub — amber card linking to `/admin/import-replies`.
+- **`zoho_synced_at` column** on `leads` table — NULL = needs Zoho sync. Set by dispatcher and inbound processor after state changes.
+- **`track_selector_sent` state** — New `wa_state` value for Rule 6a progression, preventing Rule 6b from double-sending.
+- **`/api/admin/import-replies/preview`** — POST endpoint for auto-classifying CSV rows before commit.
+- **`/api/admin/import-replies/history`** — GET endpoint returning last 10 import/export logs.
+
+### Changed
+- **Reengagement cron — optimistic locking** (`reengagement/route.ts`):
+  - Rule 5: `UPDATE leads SET wa_state = 'followup_sent' WHERE wa_state = 'first_sent'` **before** enqueue (was after). If another cron run grabbed the lead, update affects 0 rows → skip.
+  - Rule 6a: Sets `wa_state = 'track_selector_sent'` before enqueue (was leaving as `replied`).
+  - Rule 6b: Adds `.eq('wa_state', 'replied')` optimistic lock before enqueue.
+- **Rule 6 double-send guard** — Both Rule 6a and 6b queries now include `wa_last_outbound_at < wa_last_inbound_at` check, preventing multiple follow-ups for the same inbound reply.
+- **Zoho reconcile cron expanded** (`zoho-reconcile/route.ts`) — Now syncs both outbound fields (`WA_State`, `WA_Last_Outbound_At`, `WA_Last_Template`) AND inbound fields (`WA_Reply_Class`, `WA_Hotness`, `WA_Last_Inbound_At`, `WA_Opt_In`). Picks up all leads with `zoho_synced_at IS NULL`.
+- **Dispatcher** (`dispatcher.ts`) — Sets `zoho_synced_at = null` after successful send, marking lead dirty for reconcile.
+- **Inbound processor** (`inboundProcessor.ts`) — Sets `zoho_synced_at = null` after classification update.
+- **`ZohoUpdatePayload`** (`zoho.ts`) — Added `WA_State`, `WA_Last_Outbound_At`, `WA_Last_Template` fields.
+- **`WORKFLOW_STATES`** (`constants.ts`) — Added `track_selector_sent`.
+
+### Fixed
+- **Follow-up double-send bug** — Rules 5 & 6 could send the same lead duplicate messages when cron runs overlapped. Fixed via optimistic locking pattern.
+- **Rule 6 cross-contamination** — A lead could receive both `wa_track_selector` (6a) and `wa_followup_2_quickreply` (6b) because no guard prevented the second send after the first.
+
+---
+
 ## [3.9.0] - 2026-03-30 (SLA Escalation + Manual Contact + Admin UI + Follow-up Config) (SLA Escalation + Manual Contact + Admin UI Overhaul)
 
 ### Added
