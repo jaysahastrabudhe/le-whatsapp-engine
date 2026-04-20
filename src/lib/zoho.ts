@@ -155,3 +155,49 @@ export async function updateZohoLead(zohoLeadId: string, fields: ZohoUpdatePaylo
     console.error(`[Zoho Writeback] Failed to update lead ${zohoLeadId}:`, err);
   }
 }
+
+/**
+ * Creates a Note in Zoho CRM linked to a lead.
+ */
+export async function createZohoNote(zohoLeadId: string, title: string, content: string): Promise<boolean> {
+  const token = await getZohoAccessToken();
+  if (!token) return false;
+
+  console.log(`[Zoho Note] Creating note for lead ${zohoLeadId}: "${title}"`);
+
+  try {
+    const res = await fetch(`${ZOHO_BASE_URL}/Notes`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        data: [{
+          Note_Title:   title,
+          Note_Content: content,
+          Parent_Id:    zohoLeadId,
+          $se_module:   'Leads',
+        }],
+      }),
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(`Zoho Notes API Error: ${res.status} ${JSON.stringify(errData)}`);
+    }
+
+    const result = await res.json();
+    if (result.data && result.data[0].status === 'success') {
+      console.log(`[Zoho Note] Created successfully for lead ${zohoLeadId}`);
+      return true;
+    } else {
+      console.warn(`[Zoho Note] Unexpected response for ${zohoLeadId}:`, JSON.stringify(result));
+      return false;
+    }
+  } catch (err) {
+    console.error(`[Zoho Note] Failed to create note for lead ${zohoLeadId}:`, err);
+    return false;
+  }
+}
