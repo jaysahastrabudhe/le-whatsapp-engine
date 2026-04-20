@@ -5,6 +5,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.0.0] - 2026-04-20 (Campaigns Phase 2 + Unified Call Tracking & SLA Overhaul)
+
+### Added
+- **Campaign Manager — Phase 2 & 3**:
+  - **Campaign Scheduling**: Support for `scheduled` status and `scheduled_at` timestamp.
+  - **Global Deduplication Window**: Filter ensuring leads aren't messaged more than once within N days.
+  - **Audience Preview**: Real-time lead count calculation when configuring campaign filters.
+  - **Operational Guidelines**: Injected best practices and send-window rules into the builder UI.
+  - **Launcher Cron** (`/api/cron/campaign-launcher`): Automatically initializes scheduled campaigns during the 9 AM - 8 PM IST window.
+- **Unified Call Tracking System**:
+  - **Call Logs Table**: Persistent store for caller name, timestamp, result, and notes.
+  - **Manual Entry Form**: Fast-entry form on SLA monitor to manually add leads to calling queue.
+  - **`Queue Call` button**: Injected into Analytics Message Log for manual queue injection of inbound leads.
+  - **Scheduled Callbacks Box**: 4th monitor section for future-dated follow-ups.
+- **Zoho Integration**:
+  - **Automated Note Creation**: Call log results and notes automatically pushed to Zoho CRM lead records.
+  - **SLA Resolution**: Logging a call automatically clears the `wa_human_response_due_at` timer.
+
+### Changed
+- **SLA Monitor Overhaul**:
+  - Consolidated into three prioritized buckets: **Escalated**, **Pending Outreach** (WhatsApp + Manual Call Queue), and **Discovery Queue**.
+  - Replaced the "Resolve" button with a unified **Log Call** workflow.
+  - Standardized the CRM interface for all outreach types.
+- **Campaign Dispatcher**: Updated to respect the global deduplication window and check `campaign.scheduled_at`.
+
+### Fixed
+- **Template Loading Bug**: Fixed an issue where the Zoho Upload page failed to load templates due to an array/object mismatch in the refresh API response.
+- **State Transition Guard**: WhatsApp calls marked as "No Answer" now correctly move to the standard call queue state.
+
+---
+
 ## [4.0.0] - 2026-04-01 (Follow-up Dedup + Zoho Batch Writeback + CSV Export/Import)
 
 ### Added
