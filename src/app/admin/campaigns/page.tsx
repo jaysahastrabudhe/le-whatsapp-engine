@@ -3,15 +3,6 @@ import Link from 'next/link';
 
 export const revalidate = 0;
 
-type CampaignLeadStats = {
-  sent: number;
-  delivered: number;
-  read: number;
-  replied: number;
-  failed: number;
-  total: number;
-};
-
 export default async function CampaignsPage() {
   const { data: campaigns, error } = await supabase
     .from('campaigns')
@@ -25,42 +16,57 @@ export default async function CampaignsPage() {
     return <div className="p-8 text-red-600">Error loading campaigns: {error.message}</div>;
   }
 
-  function getStats(leads: { status: string }[]): CampaignLeadStats {
-    return {
-      total: leads.length,
-      sent: leads.filter((l) => l.status === 'sent').length,
-      delivered: leads.filter((l) => l.status === 'delivered').length,
-      read: leads.filter((l) => l.status === 'read').length,
-      replied: leads.filter((l) => l.status === 'replied').length,
-      failed: leads.filter((l) => l.status === 'failed').length,
-    };
-  }
-
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight text-gray-900">Campaign Manager</h1>
-        <Link
-          href="/admin/campaigns/create"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium transition-colors"
-        >
-          + New Campaign
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/campaigns/zoho-upload"
+            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-md font-medium transition-colors"
+          >
+            📤 Zoho Upload Campaign
+          </Link>
+          <Link
+            href="/admin/campaigns/create"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium transition-colors"
+          >
+            + New Campaign
+          </Link>
+        </div>
       </div>
 
       <div className="space-y-4">
         {campaigns?.map((camp) => {
-          const stats = getStats(camp.campaign_leads || []);
-          const replyRate = stats.total > 0
-            ? ((stats.replied / stats.total) * 100).toFixed(1)
-            : null;
+          let total = 0, sent = 0, delivered = 0, replied = 0, failed = 0;
+          let replyRate: string | null = null;
+          
+          if (camp.report && camp.report.delivery) {
+            total = camp.report.audience.enqueued;
+            sent = camp.report.delivery.sent;
+            delivered = camp.report.delivery.delivered;
+            replied = camp.report.replies.total;
+            failed = camp.report.delivery.failed;
+            replyRate = camp.report.replies.reply_rate_pct.toString();
+          } else {
+            const leads = camp.campaign_leads || [];
+            total = leads.length;
+            sent = leads.filter((l: any) => l.status === 'sent').length;
+            delivered = leads.filter((l: any) => l.status === 'delivered').length;
+            replied = leads.filter((l: any) => l.status === 'replied').length;
+            failed = leads.filter((l: any) => l.status === 'failed').length;
+            replyRate = total > 0 ? ((replied / total) * 100).toFixed(1) : null;
+          }
 
           return (
             <div key={camp.id} className="bg-white border rounded-lg shadow-sm p-6 space-y-4">
               {/* Header row */}
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="font-semibold text-gray-900 text-lg">{camp.name}</h3>
+                  <h3 className="font-semibold text-gray-900 text-lg flex items-center gap-2">
+                    {camp.source === 'zoho_upload' && <span title="Zoho Upload">📤</span>}
+                    {camp.name}
+                  </h3>
                   <div className="text-xs text-gray-400 font-mono mt-0.5">{camp.template_variant_id}</div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -80,13 +86,13 @@ export default async function CampaignsPage() {
               </div>
 
               {/* Stats bar */}
-              {stats.total > 0 ? (
+              {total > 0 ? (
                 <div className="grid grid-cols-5 gap-3 pt-2 border-t">
-                  <StatCell label="Total" value={stats.total} />
-                  <StatCell label="Sent" value={stats.sent} color="blue" />
-                  <StatCell label="Delivered" value={stats.delivered} color="green" />
-                  <StatCell label="Replied" value={stats.replied} color="purple" />
-                  <StatCell label="Failed" value={stats.failed} color={stats.failed > 0 ? 'red' : undefined} />
+                  <StatCell label="Total" value={total} />
+                  <StatCell label="Sent" value={sent} color="blue" />
+                  <StatCell label="Delivered" value={delivered} color="green" />
+                  <StatCell label="Replied" value={replied} color="purple" />
+                  <StatCell label="Failed" value={failed} color={failed > 0 ? 'red' : undefined} />
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 pt-2 border-t">No leads tracked yet.</p>
@@ -99,8 +105,8 @@ export default async function CampaignsPage() {
                 </span>
                 <div className="flex items-center gap-3">
                   {camp.segment_filters && Object.keys(camp.segment_filters).length > 0 && (
-                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                      Segment: {JSON.stringify(camp.segment_filters)}
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded max-w-sm truncate whitespace-nowrap overflow-hidden">
+                      {camp.source === 'zoho_upload' ? 'Segment: Zoho Export ' : 'Segment: '}{JSON.stringify(camp.segment_filters)}
                     </span>
                   )}
                   <Link

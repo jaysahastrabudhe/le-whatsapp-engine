@@ -163,7 +163,10 @@ export async function processInboundMessage(job: { data: Record<string, string> 
     replyClass === 'fee_question' ||
     !!TRACK_BUTTONS[ButtonPayload ?? ''];
 
-  if (sendCounsellor) {
+  // P4.3: suppress wa_counsellor_intro for webinar campaign replies
+  const suppressCounsellor = currentLead?.wa_last_template === 'wa_webinar_cta';
+
+  if (sendCounsellor && !suppressCounsellor) {
     const track = leadTrackUpdate ?? currentLead?.lead_track ?? null;
     const trackLabel = track
       ? track.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
