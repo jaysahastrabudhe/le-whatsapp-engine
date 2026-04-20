@@ -12,6 +12,7 @@ export type CampaignSegmentFilters = {
   lead_track?: string;
   campaign_source?: 'supabase' | 'zoho_upload';
   zoho_upload_id?: string;
+  dedupe_days?: number; // Global campaign deduplication window
 };
 
 function buildQuery(segment: CampaignSegmentFilters) {
@@ -47,8 +48,26 @@ function buildQuery(segment: CampaignSegmentFilters) {
 }
 
 export async function previewCampaignAudience(segment: CampaignSegmentFilters) {
-  const query = buildQuery(segment);
-  // Just fetch count
+  let query = buildQuery(segment);
+  
+  // Apply N-day Global Deduplication
+  if (segment.dedupe_days && segment.dedupe_days > 0) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - segment.dedupe_days);
+    
+    // Get lead IDs recently contacted via any campaign
+    const { data: recentLeads } = await supabase
+      .from('campaign_leads')
+      .select('lead_id')
+      .gte('created_at', cutoffDate.toISOString());
+    
+    if (recentLeads && recentLeads.length > 0) {
+      const excludedIds = Array.from(new Set(recentLeads.map(r => r.lead_id)));
+      // Supabase filter: not.in('id', [...])
+      query = query.not('id', 'in', `(${excludedIds.join(',')})`);
+    }
+  }
+
   const { count, error } = await query.range(0, 0);
   if (error) {
     console.error('[Campaign] Preview query failed:', error);
@@ -61,8 +80,12 @@ export async function createAndLaunchCampaign(
   name: string,
   templateVariantId: string,
   templateName: string,
-  segment: CampaignSegmentFilters
+  segment: CampaignSegmentFilters,
+  launchConfig?: { status?: string, scheduled_at?: string }
 ) {
+  const status = launchConfig?.status || 'running';
+  const scheduledAt = launchConfig?.scheduled_at || null;
+
   // 1. Create campaign record
   const { data: campaign, error: cErr } = await supabase
     .from('campaigns')
@@ -70,7 +93,9 @@ export async function createAndLaunchCampaign(
       name,
       template_variant_id: templateVariantId,
       segment_filters: segment,
-      status: 'running',
+      status: status,
+      scheduled_at: scheduledAt,
+      dedupe_days: segment.dedupe_days || 0,
       source: segment.campaign_source || 'supabase_segment',
       ...(segment.zoho_upload_id ? { zoho_upload_id: segment.zoho_upload_id } : {})
     })
@@ -81,38 +106,80 @@ export async function createAndLaunchCampaign(
     throw new Error('Failed to create campaign');
   }
 
+  // If status is 'draft' or 'scheduled', we stop here.
+  // The launcher cron will pick up 'scheduled' campaigns later.
+  if (status === 'draft' || status === 'scheduled') {
+    return { success: true, count: 0, campaignId: campaign.id, status };
+  }
+
+  return executeCampaignLaunch(campaign.id);
+}
+
+/**
+ * The actual logic to fetch leads, apply dedupe, and enqueue messages.
+ * Used for both immediate launch and scheduled launch.
+ */
+export async function executeCampaignLaunch(campaignId: string) {
+  // Fetch campaign details
+  const { data: campaign, error: cErr } = await supabase
+    .from('campaigns')
+    .select('*')
+    .eq('id', campaignId)
+    .single();
+  
+  if (cErr || !campaign) throw new Error('Campaign not found');
+
+  const segment = (campaign.segment_filters || {}) as CampaignSegmentFilters;
+  const templateVariantId = campaign.template_variant_id;
+  const templateName = campaign.template_name || 'unknown_template';
+
   let leads: any[] | null = null;
 
-  if (segment.campaign_source === 'zoho_upload') {
-    // If it's a zoho upload, we don't query leads here; 
-    // the upload commit route creates the campaign_leads directly and enqueues.
-    // So this function should only be used for supabase_segment campaigns.
-    // For zoho upload campaigns, we handle it in the commit route.
-    console.warn('[Campaign] createAndLaunchCampaign called for zoho_upload. This should be handled in the commit route.');
-    return { success: true, count: 0, campaignId: campaign.id };
+  if (campaign.source === 'zoho_upload') {
+     // For Zoho uploads, campaign_leads are already created during commit.
+     // Fetch leads linked to this campaign.
+     const { data: clData } = await supabase
+       .from('campaign_leads')
+       .select('lead_id, leads(*)')
+       .eq('campaign_id', campaign.id)
+       .eq('status', 'pending');
+     
+     leads = (clData || []).map(d => d.leads).filter(Boolean);
   } else {
-    // 2. Fetch matching leads
-    const query = buildQuery(segment);
-    const { data, error: lErr } = await query;
+    // 2. Fetch matching leads with global dedupe
+    let query = buildQuery(segment);
+    
+    // Apply N-day deduplication stored on campaign
+    if (campaign.dedupe_days && campaign.dedupe_days > 0) {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - campaign.dedupe_days);
+      const { data: recentLeads } = await supabase
+        .from('campaign_leads')
+        .select('lead_id')
+        .gte('created_at', cutoffDate.toISOString())
+        .neq('campaign_id', campaign.id); // Don't dedupe against itself if retrying
+      
+      if (recentLeads && recentLeads.length > 0) {
+        const excludedIds = Array.from(new Set(recentLeads.map(r => r.lead_id)));
+        query = query.not('id', 'in', `(${excludedIds.join(',')})`);
+      }
+    }
+
+    const { data } = await query;
     leads = data;
 
-    if (lErr || !leads || leads.length === 0) {
+    if (!leads || leads.length === 0) {
       await supabase.from('campaigns').update({ status: 'completed' }).eq('id', campaign.id);
       return { success: true, count: 0, campaignId: campaign.id };
     }
+
+    // Insert campaign_leads records for segment campaigns
+    await supabase.from('campaign_leads').insert(
+      leads.map((l) => ({ campaign_id: campaign.id, lead_id: l.id, status: 'pending' }))
+    );
   }
 
-  // 3. Deduplication: Exclude leads that are already in this campaign
-  // (In case of retry or weird manual re-trigger, though unlikely for a new campaign)
-  // But wait, the campaign was just inserted! So no leads are in it yet.
-  
-  // 3. Insert campaign_leads records
-  await supabase.from('campaign_leads').insert(
-    leads.map((l) => ({ campaign_id: campaign.id, lead_id: l.id, status: 'pending' }))
-  );
-
-  // 4. Enqueue to campaign queue (rate-limited at 30/min by cron)
-  // Bypass 2-message engine cooldown explicitly - campaigns queue logic assumes bypassing
+  // 4. Enqueue to campaign queue
   let enqueued = 0;
   for (const lead of leads) {
     try {
@@ -131,9 +198,9 @@ export async function createAndLaunchCampaign(
     }
   }
 
-  console.log(`[Campaign] "${name}" launched — ${enqueued}/${leads.length} leads enqueued.`);
-  // Status stays 'running' — the process-queue cron marks it 'completed'
-  // once all campaign_leads have been dispatched.
+  // Ensure campaign is marked as running
+  await supabase.from('campaigns').update({ status: 'running' }).eq('id', campaign.id);
 
+  console.log(`[Campaign] "${campaign.name}" launched — ${enqueued}/${leads.length} leads enqueued.`);
   return { success: true, count: enqueued, campaignId: campaign.id };
 }

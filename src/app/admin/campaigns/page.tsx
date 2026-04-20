@@ -77,7 +77,9 @@ export default async function CampaignsPage() {
                   )}
                   <span className={`px-2 py-1 rounded-full text-xs font-medium uppercase tracking-wider
                     ${camp.status === 'completed' ? 'bg-green-100 text-green-800' :
-                      camp.status === 'running' ? 'bg-blue-100 text-blue-800' :
+                      camp.status === 'running'   ? 'bg-blue-100 text-blue-800' :
+                      camp.status === 'scheduled' ? 'bg-amber-100 text-amber-800' :
+                      camp.status === 'draft'     ? 'bg-gray-100 text-gray-500' :
                       'bg-gray-100 text-gray-800'}`}
                   >
                     {camp.status}
@@ -85,8 +87,18 @@ export default async function CampaignsPage() {
                 </div>
               </div>
 
+              {/* Scheduled Info */}
+              {camp.status === 'scheduled' && camp.scheduled_at && (
+                <div className="bg-amber-50 border border-amber-100 rounded p-2 text-sm text-amber-700 flex items-center gap-2">
+                  <span>⏰ Scheduled to launch at:</span>
+                  <span className="font-semibold">
+                    {new Date(camp.scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              )}
+
               {/* Stats bar */}
-              {total > 0 ? (
+              {total > 0 || camp.status === 'running' || camp.status === 'completed' ? (
                 <div className="grid grid-cols-5 gap-3 pt-2 border-t">
                   <StatCell label="Total" value={total} />
                   <StatCell label="Sent" value={sent} color="blue" />

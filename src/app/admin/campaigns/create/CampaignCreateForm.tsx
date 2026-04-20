@@ -9,6 +9,9 @@ export default function CampaignCreateForm({ templates }: { templates: any[] }) 
   const [loading, setLoading] = useState(false);
   const [audienceCount, setAudienceCount] = useState<number | null>(null);
   
+  const [campaignStatus, setCampaignStatus] = useState<'running' | 'scheduled' | 'draft'>('running');
+  const [scheduledAt, setScheduledAt] = useState('');
+
   const [filters, setFilters] = useState({
     name: '',
     templateSid: '',
@@ -18,7 +21,8 @@ export default function CampaignCreateForm({ templates }: { templates: any[] }) 
     urgency: '',
     lead_track: '',
     lead_source: '',
-    wa_hotness: ''
+    wa_hotness: '',
+    dedupe_days: '0'
   });
 
   const getPreviewCount = useCallback(async (currentFilters: typeof filters) => {
@@ -29,6 +33,7 @@ export default function CampaignCreateForm({ templates }: { templates: any[] }) 
     if (currentFilters.lead_track) params.set('lead_track', currentFilters.lead_track);
     if (currentFilters.lead_source) params.set('lead_source', currentFilters.lead_source);
     if (currentFilters.wa_hotness) params.set('wa_hotness', currentFilters.wa_hotness);
+    if (currentFilters.dedupe_days) params.set('dedupe_days', currentFilters.dedupe_days);
 
     try {
       const res = await fetch(`/api/admin/campaigns/preview-count?${params.toString()}`);
@@ -78,6 +83,11 @@ export default function CampaignCreateForm({ templates }: { templates: any[] }) 
             persona: filters.persona || undefined,
             urgency: filters.urgency || undefined,
             lead_track: filters.lead_track || undefined,
+            dedupe_days: parseInt(filters.dedupe_days) || 0,
+          },
+          launchConfig: {
+            status: campaignStatus,
+            scheduled_at: campaignStatus === 'scheduled' ? scheduledAt : undefined
           }
         })
       });
@@ -217,20 +227,78 @@ export default function CampaignCreateForm({ templates }: { templates: any[] }) 
             </select>
           </div>
         </div>
+
+        <div className="pt-2">
+            <label className="text-sm font-medium text-gray-700">Global Deduplication Window (Days)</label>
+            <input
+              type="number"
+              name="dedupe_days"
+              value={filters.dedupe_days}
+              onChange={handleChange}
+              min="0"
+              placeholder="0 = disabled"
+              className="w-full max-w-[120px] border rounded-md p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none mt-1 block"
+            />
+            <p className="text-xs text-gray-400 mt-1">Excludes leads who received a campaign message in the last N days.</p>
+        </div>
+      </div>
+
+      {/* Scheduling */}
+      <div className="pt-4 border-t space-y-4">
+        <h3 className="font-semibold text-gray-900">Launch Strategy</h3>
+        <div className="flex gap-4">
+          <button
+            type="button"
+            onClick={() => setCampaignStatus('running')}
+            className={`flex-1 py-2 px-3 text-sm rounded-md border transition-all ${campaignStatus === 'running' ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium ring-2 ring-blue-500/20' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+          >
+            🚀 Send Now
+          </button>
+          <button
+            type="button"
+            onClick={() => setCampaignStatus('scheduled')}
+            className={`flex-1 py-2 px-3 text-sm rounded-md border transition-all ${campaignStatus === 'scheduled' ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium ring-2 ring-blue-500/20' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+          >
+            ⏰ Schedule
+          </button>
+          <button
+            type="button"
+            onClick={() => setCampaignStatus('draft')}
+            className={`flex-1 py-2 px-3 text-sm rounded-md border transition-all ${campaignStatus === 'draft' ? 'bg-gray-50 border-gray-200 text-gray-700 font-medium ring-2 ring-gray-500/20' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+          >
+            📁 Draft
+          </button>
+        </div>
+
+        {campaignStatus === 'scheduled' && (
+          <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+             <label className="text-sm font-medium text-gray-700 block mb-1">Pick Date & Time (IST)</label>
+             <input
+               type="datetime-local"
+               required
+               value={scheduledAt}
+               onChange={e => setScheduledAt(e.target.value)}
+               className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+             />
+          </div>
+        )}
       </div>
 
       <div className="pt-2 bg-amber-50 border border-amber-100 rounded-md p-3 text-xs text-amber-700">
-        Campaign messages are rate-limited to 30/min via the campaign queue.
-        Messages go out only within the 9am–8pm IST send window.
+        Note: Messages go out only within the 9am–8pm IST send window. Scheduled campaigns will be enqueued by the launcher cron.
       </div>
 
-      <button
-        type="submit"
-        disabled={loading || audienceCount === 0}
-        className="w-full bg-gray-900 focus:bg-gray-700 hover:bg-gray-700 disabled:opacity-50 text-white font-semibold py-3 rounded-md transition-colors text-sm"
-      >
-        {loading ? 'Launching...' : 'Launch Campaign'}
-      </button>
+      <div className="flex gap-3">
+        <button
+          type="submit"
+          disabled={loading || audienceCount === 0}
+          className={`flex-1 font-semibold py-3 rounded-md transition-all text-sm disabled:opacity-50 ${campaignStatus === 'draft' ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-900 text-white hover:bg-gray-700'}`}
+        >
+          {loading ? 'Processing...' : 
+           campaignStatus === 'running' ? 'Launch Campaign' :
+           campaignStatus === 'scheduled' ? 'Schedule Campaign' : 'Save as Draft'}
+        </button>
+      </div>
     </form>
   );
 }
