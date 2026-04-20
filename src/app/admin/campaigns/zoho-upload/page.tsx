@@ -19,11 +19,14 @@ export default function ZohoUploadPage() {
   useEffect(() => {
     // Basic fetch of templates from an api route or we could just fetch them 
     // Usually admin/templates gets approved templates.
-    fetch('/api/admin/templates') // Assume this exists or we can fetch directly? Wait, wait, there is no /api/admin/templates...
+    fetch('/api/admin/templates') 
       .then(res => res.json())
       .then(data => {
-        if (data.templates) {
-          setTemplates(data.templates.filter((t: any) => t.status === 'approved'));
+        if (Array.isArray(data)) {
+          setTemplates(data);
+        } else if (data.templates && Array.isArray(data.templates)) {
+          // Fallback just in case
+          setTemplates(data.templates);
         }
       })
       .catch(console.error);
