@@ -16,7 +16,7 @@ export default function CallLogModal({
   leadId: string;
   zohoLeadId: string | null;
   leadName: string;
-  queueType: 'call_queue' | 'discovery_call';
+  queueType: 'call_queue' | 'discovery_call' | 'whatsapp_reply';
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -94,7 +94,7 @@ export default function CallLogModal({
               </select>
             </div>
 
-            {queueType === 'call_queue' && (
+            {(queueType === 'call_queue' || queueType === 'whatsapp_reply') && (
               <div className="space-y-1.5">
                 <label className="text-sm font-semibold text-gray-700">Contact Status</label>
                 <select
@@ -129,7 +129,7 @@ export default function CallLogModal({
           <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg space-y-4">
             <label className="text-sm font-bold text-blue-900">Next Action</label>
             <div className="space-y-2">
-              {queueType === 'call_queue' && contactStatus !== 'no_answer' && (
+              {(queueType === 'call_queue' || queueType === 'whatsapp_reply') && contactStatus !== 'no_answer' && (
                 <label className="flex items-center gap-3 p-2 border border-transparent hover:bg-blue-100 rounded cursor-pointer">
                   <input type="radio" name="action" value="discovery_call" checked={nextAction === 'discovery_call'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
                   <span className="text-sm font-medium text-gray-800">Set up discovery call (Moves to Discovery Queue)</span>

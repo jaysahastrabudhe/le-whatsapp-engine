@@ -28,11 +28,15 @@ export async function POST(request: Request) {
     // 2. Update Lead State
     let updateFields: any = {
       call_assigned_to: caller,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      wa_human_response_due_at: null // Clear WhatsApp SLA timer since call counts as human response
     };
 
     if (contactStatus === 'no_answer') {
-      // Usually keep in same queue. Just record the interaction.
+      // Keep in same queue, but if it was just a whatsapp reply, convert it to a queued call so it is tracked correctly
+      if (currentQueue === 'whatsapp_reply') {
+        updateFields.wa_state = 'call_queued';
+      }
     } else if (nextAction === 'followup_on_date') {
       // If it was already in discovery call queue, keep it there but add followup date.
       if (currentQueue === 'discovery_call') {

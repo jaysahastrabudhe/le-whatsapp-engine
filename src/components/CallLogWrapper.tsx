@@ -4,7 +4,7 @@ import CallLogModal from './CallLogModal';
 import { PhoneCall } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-export default function CallLogWrapper({ lead, queueType }: { lead: any, queueType: 'call_queue' | 'discovery_call' }) {
+export default function CallLogWrapper({ lead, queueType }: { lead: any, queueType: 'call_queue' | 'discovery_call' | 'whatsapp_reply' }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
 

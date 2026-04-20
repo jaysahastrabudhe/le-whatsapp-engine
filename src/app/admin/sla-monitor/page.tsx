@@ -165,8 +165,8 @@ export default async function SLAMonitorPage() {
                     <td className="px-4 py-3 text-xs text-red-600 whitespace-nowrap font-medium">
                       {formatIST(lead.updated_at)}
                     </td>
-                    <td className="px-4 py-3">
-                      <SlaResolveButton leadId={lead.id} />
+                    <td className="px-4 py-3 text-right flex justify-end">
+                      <CallLogWrapper lead={lead} queueType="whatsapp_reply" />
                     </td>
                   </tr>
                 ))}
@@ -260,11 +260,7 @@ export default async function SLAMonitorPage() {
                       }
                     </td>
                     <td className="px-4 py-3 text-right flex justify-end">
-                      {isWhatsApp ? (
-                        <SlaResolveButton leadId={lead.id} />
-                      ) : (
-                        <CallLogWrapper lead={lead} queueType="call_queue" />
-                      )}
+                      <CallLogWrapper lead={lead} queueType={isWhatsApp ? 'whatsapp_reply' : 'call_queue'} />
                     </td>
                   </tr>
                 );
@@ -326,6 +322,33 @@ export default async function SLAMonitorPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <hr className="border-gray-200 mt-12 mb-8" />
+
+      {/* WORKFLOW GUIDE */}
+      <section className="bg-blue-50 border border-blue-100 rounded-lg p-6">
+        <h3 className="text-lg font-bold text-blue-900 mb-4">🚀 Daily Operations Workflow</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+          <div>
+            <div className="space-y-4 text-sm text-blue-800">
+              <p><strong>Step 1: Check Escalated</strong><br/>Handle the breached 🔴 Escalated leads first to clear Zoho task penalties.</p>
+              
+              <p><strong>Step 2: Dial Pending Outreach</strong><br/>Call the people in the blue/green queue. Logging a call with "Set up discovery call" moves them to Step 3. <em>(Logging a call exactly this way also stops the WhatsApp SLA timer automatically!).</em></p>
+              
+              <p><strong>Step 3: Conduct Discoveries</strong><br/>Call the high-value leads waiting in the Discovery Queue. When they are sold, hit Update &rarr; "Ready to Fill Form" to clear them off the board!</p>
+              
+              <p className="bg-white/60 p-3 rounded text-xs italic">
+                Tip: If a lead needs time, select "Follow up later". They will vanish out of your way and pop back onto the board automatically on the date you choose.
+              </p>
+            </div>
+          </div>
+          
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100 overflow-x-auto text-xs font-mono">
+            {'Pending Outreach --> [Log Call] --> Discovery Queue --> [Update] --> Resolved'}
+          </div>
         </div>
       </section>
     </div>
