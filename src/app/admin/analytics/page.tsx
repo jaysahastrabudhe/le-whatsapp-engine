@@ -3,6 +3,7 @@ import { getApprovedTemplates } from '@/lib/twilio/templates';
 import Link from 'next/link';
 import { ReplyButton } from '@/components/ReplyButton';
 import { MarkManualButton } from '@/components/MarkManualButton';
+import { QueueCallButton } from '@/components/QueueCallButton';
 
 export const revalidate = 0;
 
@@ -278,6 +279,11 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                             leadId={row.lead_id}
                             leadName={row.leads?.name || row.phone_normalised}
                           />
+                          <QueueCallButton leadId={row.lead_id} />
+                        </div>
+                      ) : isInbound && !inWindow && row.lead_id ? (
+                        <div className="flex items-center gap-2">
+                           <QueueCallButton leadId={row.lead_id} />
                         </div>
                       ) : !isInbound && row.status === 'failed' && row.lead_id && row.phone_normalised ? (
                         <MarkManualButton

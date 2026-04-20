@@ -72,6 +72,11 @@ export default async function SLAMonitorPage() {
     return false;
   });
 
+  const scheduledLeads = allCallLeads.filter(l => {
+    if (l.followup_call_at && new Date(l.followup_call_at).getTime() > now) return true;
+    return false;
+  }).sort((a, b) => new Date(a.followup_call_at!).getTime() - new Date(b.followup_call_at!).getTime());
+
   // 2. Existing WhatsApp SLAs (Active)
   const { data: active } = await supabase
     .from('leads')
@@ -317,6 +322,62 @@ export default async function SLAMonitorPage() {
                   </td>
                   <td className="px-4 py-3 text-right flex justify-end">
                     <CallLogWrapper lead={lead} queueType="discovery_call" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr className="border-gray-200" />
+
+      {/* 4. SCHEDULED CALLBACKS */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-2 h-2 rounded-full bg-blue-400" />
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+            Scheduled Callbacks <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{scheduledLeads.length}</span>
+          </h2>
+        </div>
+        <div className="bg-white border rounded-lg overflow-hidden shadow-sm opacity-80 hover:opacity-100 transition-opacity">
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="bg-gray-50 border-b text-xs text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3">Lead</th>
+                <th className="px-4 py-3">Type / State</th>
+                <th className="px-4 py-3">Scheduled For</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scheduledLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-gray-400">
+                    No future callbacks scheduled.
+                  </td>
+                </tr>
+              ) : scheduledLeads.map((lead) => (
+                <tr key={lead.id} className="border-b hover:bg-gray-50/50">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900 flex items-center gap-2">
+                       {lead.name || '—'}
+                       {lead.wa_hotness && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${HOTNESS_STYLES[lead.wa_hotness] || 'bg-gray-100 text-gray-600'}`}>{lead.wa_hotness}</span>}
+                    </div>
+                    <div className="text-xs text-gray-400 font-mono">{lead.phone_normalised}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase ${
+                      lead.wa_state === 'discovery_call' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {lead.wa_state === 'discovery_call' ? 'Discovery' : 'General Call'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-blue-600 font-medium">
+                    {formatIST(lead.followup_call_at)}
+                  </td>
+                  <td className="px-4 py-3 text-right flex justify-end">
+                    <CallLogWrapper lead={lead} queueType={lead.wa_state === 'discovery_call' ? 'discovery_call' : 'whatsapp_reply'} />
                   </td>
                 </tr>
               ))}
