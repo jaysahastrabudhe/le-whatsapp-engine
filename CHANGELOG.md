@@ -5,6 +5,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.2.0] - 2026-04-21 (Zoho Writeback Completeness + Notes OAuth Fix)
+
+### Added
+- **`WA_Track` reconcile fallback** — `wa_track` added to `zoho-reconcile` SELECT and payload. Previously only written inline on track-button tap with no recovery if the write failed.
+
+### Changed
+- **Daily Inbound report** (`/admin/reports/daily-inbound`) — refactored to one row per lead (grouped by `lead_id || phone_normalised`). New "Msgs" count column; message column shows last 2 messages combined with ` · ` separator. Clicking any row navigates to the analytics message log pre-filtered for that lead.
+- **`noteCreated` response in Call Log API** — was always `true` even on Zoho failure because `createZohoNote` return value was ignored. Now correctly reflects actual API success/failure.
+- **Team members** — added Ankita to the caller dropdown in CallLogModal.
+
+### Fixed
+- **Zoho Notes OAuth scope** (`OAUTH_SCOPE_MISMATCH`) — the refresh token was generated without Notes access. Regenerated with `ZohoCRM.modules.ALL` scope. Notes from call logs now appear in Zoho CRM correctly.
+- **`zoho_synced_at` not set on terminal state changes** — `WA_State` was stale in Zoho for most non-send transitions. Added `zoho_synced_at = null` to all places that change state without triggering a dispatch:
+  - `rulesEngine.ts`: `wa_closed` (opt-out), `wa_manual_triage`, `wa_unrouted`
+  - `statusProcessor.ts`: `opted_out`, `invalid_number` (these leads never get another outbound send to trigger reconcile)
+  - `sla-monitor/route.ts`: `wa_sla_escalated`
+  - `sla-resolve/route.ts`: `wa_sla_resolved`
+- **`createZohoNote` error surfacing** — switched from `res.json()` to `res.text()` first, then `JSON.parse`. Raw Zoho error body now logged on failure (enabled diagnosis of the OAuth scope issue).
+
+---
+
 ## [5.1.0] - 2026-04-21 (MQL Outreach + Reports + Zoho Fixes)
 
 ### Added

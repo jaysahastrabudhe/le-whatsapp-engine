@@ -2,7 +2,7 @@
 **Project:** ZOHO + Twilio WhatsApp Lead Engagement Engine
 **Started:** 23 March 2026
 **Last Updated:** 21 April 2026
-**Status:** 🟢 PHASE 5.1 COMPLETE — MQL Outreach queue live; Zoho reconcile parallelised (timeout fixed); Zoho Notes bug fixed; Reports section launched (Daily Calls, Daily Inbound, Undelivered Downloads) with 14-day history.
+**Status:** 🟢 PHASE 5.2 COMPLETE — Zoho Notes OAuth scope fixed (notes now writing to CRM); full zoho_synced_at coverage across all terminal state changes; Daily Inbound report refactored to per-lead view.
 
 > **How to use this file**
 > - Mark tasks `[x]` when done, `[~]` when in progress, `[!]` when blocked
@@ -32,6 +32,7 @@
 | **Phase 4.0 — Dedup + Zoho Writeback + CSV Export/Import** | **9** | **9** | **0** | **0** |
 | **Phase 5.0 — Campaigns v2 + Unified Call Tracking & SLA** | **12** | **12** | **0** | **0** |
 | **Phase 5.1 — MQL Outreach + Reports + Zoho Fixes** | **11** | **11** | **0** | **0** |
+| **Phase 5.2 — Zoho Writeback Completeness + Notes OAuth Fix** | **7** | **7** | **0** | **0** |
 | Phase 6 — Next Sprint | 5 | 0 | 0 | 0 |
 | Phase 7 — Future | 5 | 0 | 0 | 0 |
 
@@ -460,6 +461,24 @@
 
 ---
 
+## 🟢 PHASE 5.2 — ZOHO WRITEBACK COMPLETENESS + NOTES OAuth FIX (21 April 2026) ✅ COMPLETE
+
+### Zoho Notes Fix (Root Cause)
+- [x] **P5.2.1 — Diagnose Zoho Notes failure** — `/api/admin/test-note` endpoint updated to call Zoho API directly and return raw `httpStatus` + `zohoResponse`. Identified `OAUTH_SCOPE_MISMATCH` (401) — refresh token lacked Notes scope.
+- [x] **P5.2.2 — Regenerate Zoho OAuth token** — New refresh token generated via Zoho API Console Self Client with scope `ZohoCRM.modules.ALL,ZohoCRM.settings.ALL`. Updated `ZOHO_REFRESH_TOKEN` in Vercel env. Notes now writing to CRM correctly.
+- [x] **P5.2.3 — Improve `createZohoNote` error logging** — switched from `res.json()` to `res.text()` + `JSON.parse`. Raw Zoho error body now surfaces in Vercel logs on failure.
+- [x] **P5.2.4 — Fix `noteCreated` response accuracy** — `call-log/route.ts` was ignoring `createZohoNote` return value; `zohoNoteOk` was always `true`. Fixed to `zohoNoteOk = await createZohoNote(...)`.
+
+### Zoho `zoho_synced_at` Coverage
+- [x] **P5.2.5 — Terminal state changes now trigger reconcile** — Added `zoho_synced_at = null` to: `rulesEngine.ts` (`wa_closed`, `wa_manual_triage`, `wa_unrouted`), `statusProcessor.ts` (`opted_out`, `invalid_number`), `sla-monitor/route.ts` (`wa_sla_escalated`), `sla-resolve/route.ts` (`wa_sla_resolved`). Previously `WA_State` was stale in Zoho for all non-send transitions.
+- [x] **P5.2.6 — `WA_Track` reconcile fallback** — Added `wa_track` to reconcile `SELECT` and payload. Fallback sync if inline inbound write ever fails.
+
+### UI
+- [x] **P5.2.7 — Daily Inbound report per-lead view** — Refactored to one row per lead (grouped by `lead_id || phone_normalised`). Msgs count column added; message column shows last 2 messages combined. Clicking a row navigates to analytics message log pre-filtered for that lead.
+- [x] **P5.2.8 — Ankita added to team members** — Added to `TEAM_MEMBERS` in `CallLogModal.tsx`.
+
+---
+
 ## 🟠 PHASE 6 — NEXT SPRINT
 
 - [ ] **P6.1 — Named flow save/open in Logic Builder**
@@ -528,6 +547,8 @@
 | 24 | 21 Apr | Zoho Reconcile cron URL malformed on cron-job.org | Ops | ✅ Resolved | URL was `...zoho-reconcilehttp:/`. Fixed via "Update Job URL" button on cron-job.org. |
 | 25 | 21 Apr | Zoho Notes not appearing in CRM after call log | Code Agent | ✅ Resolved | POST /Notes with Parent_Id as plain string silently failed. Switched to POST /Leads/{id}/Notes. |
 | 26 | 21 Apr | Daily Inbound report showing no records | Code Agent | ✅ Resolved | wa_reply_class selected directly on messages table (column is on leads). Moved to join. |
+| 27 | 21 Apr | Zoho Notes not writing despite endpoint fix | Code Agent + Ops | ✅ Resolved | OAuth refresh token lacked Notes scope (`OAUTH_SCOPE_MISMATCH` 401). Regenerated token with `ZohoCRM.modules.ALL`. |
+| 28 | 21 Apr | `WA_State` stale in Zoho for most state changes | Code Agent | ✅ Resolved | `zoho_synced_at = null` was only set by dispatcher. Terminal states (opt-out, SLA escalate/resolve, unrouted, manual triage) never triggered reconcile. Added flag to all affected paths. |
 
 
 ---
@@ -567,6 +588,7 @@
 | 20 Apr | Callback Visibility | Added 4th box for "Scheduled Callbacks" (future follow-ups) | Vanishing "sleep mode" leads |
 | 20 Apr | Manual SLA Injection | Admin "Queue Call" button in the Message Log | System-only classification triggers |
 | 21 Apr | Zoho Reconcile write strategy | Batch dirty-flag pattern (hourly cron) for WA fields; direct awaited write for Lead_Stage/Lead_Status and Notes | Inline in every API call |
+| 21 Apr | Zoho OAuth scope | `ZohoCRM.modules.ALL,ZohoCRM.settings.ALL` — broad scope via Self Client to avoid per-module permission gaps | Module-specific scopes (caused Notes failure) |
 | 21 Apr | MQL sync Zoho criteria | Filter in-code after fetching page 1 (Zoho ignores criteria on custom field names) | Trust Zoho server-side criteria filter |
 | 21 Apr | Reports date filtering | IST-day range (00:00–23:59:59 IST) computed at query time from YYYY-MM-DD param | UTC midnight cutoff (would show wrong day) |
 
