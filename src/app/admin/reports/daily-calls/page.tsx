@@ -3,6 +3,10 @@ import { supabase } from '@/lib/supabase';
 
 export const revalidate = 0;
 
+function toISTDate(ts: string) {
+  return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
 function istDayRange(dateStr: string): { start: string; end: string } {
   // dateStr = YYYY-MM-DD in IST. IST = UTC+5:30
   const start = new Date(`${dateStr}T00:00:00+05:30`).toISOString();
@@ -50,6 +54,19 @@ export default async function DailyCallsPage({
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const date = params.date || today;
   const { start, end } = istDayRange(date);
+
+  // History — last 14 days
+  const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
+  const { data: historyRows } = await supabase
+    .from('call_logs')
+    .select('called_at')
+    .gte('called_at', cutoff);
+  const countByDay: Record<string, number> = {};
+  for (const r of historyRows || []) countByDay[toISTDate(r.called_at)] = (countByDay[toISTDate(r.called_at)] || 0) + 1;
+  const historyDays = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(Date.now() - i * 86400000);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  });
 
   const { data: logs } = await supabase
     .from('call_logs')
@@ -198,6 +215,30 @@ export default async function DailyCallsPage({
           </table>
         </div>
       )}
+
+      {/* 14-day history */}
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b bg-gray-50">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">14-Day History</h2>
+        </div>
+        <div className="divide-y divide-gray-100">
+          {historyDays.map((day) => {
+            const count   = countByDay[day] || 0;
+            const isSelected = day === date;
+            const isToday    = day === today;
+            const label = isToday ? 'Today' : new Date(`${day}T12:00:00+05:30`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short' });
+            return (
+              <Link key={day} href={`/admin/reports/daily-calls?date=${day}`}
+                className={`flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors ${isSelected ? 'bg-blue-50' : ''}`}>
+                <span className={`text-sm font-medium ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>{label}</span>
+                {count > 0
+                  ? <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full">{count} call{count !== 1 ? 's' : ''}</span>
+                  : <span className="text-gray-300 text-xs">No calls</span>}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
