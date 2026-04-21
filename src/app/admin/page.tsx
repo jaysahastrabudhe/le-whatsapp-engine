@@ -130,6 +130,18 @@ export default function AdminDashboardPage() {
           </div>
         </Link>
 
+        <Link href="/admin/reports" className="group block">
+          <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-rose-500 transition-all">
+            <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-rose-600 transition-colors">Reports</h3>
+            <p className="text-gray-500 text-sm">Daily call log and inbound message summaries. Review team activity and lead responses by date.</p>
+          </div>
+        </Link>
+
       </div>
     </div>
   );
