@@ -108,15 +108,17 @@ export default async function SLAMonitorPage() {
   const activeLeads = active || [];
   const escalatedLeads = escalated || [];
 
-  // Pipeline visual — resolved today count
-  const todayStart = new Date(
-    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T00:00:00+05:30'
+  // Pipeline visual — today's call log stats (since 6am IST)
+  const today6am = new Date(
+    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T06:00:00+05:30'
   ).toISOString();
-  const { count: resolvedToday } = await supabase
-    .from('leads')
-    .select('*', { count: 'exact', head: true })
-    .eq('wa_state', 'wa_sla_resolved')
-    .gte('updated_at', todayStart);
+  const { data: todayCallLogs } = await supabase
+    .from('call_logs')
+    .select('contact_status')
+    .gte('called_at', today6am);
+  const callsAnswered    = (todayCallLogs || []).filter(c => c.contact_status === 'answered').length;
+  const callsNoAnswer    = (todayCallLogs || []).filter(c => c.contact_status === 'no_answer').length;
+  const callsCallBack    = (todayCallLogs || []).filter(c => c.contact_status === 'call_back_later').length;
 
   // Combine Active SLAs and Call Queue
   const callQueueLeadsMapped = callQueueLeads.map(lead => ({
@@ -151,82 +153,88 @@ export default async function SLAMonitorPage() {
           <span className="text-xs text-gray-400">Live counts · refreshes on page load</span>
         </div>
         <div className="px-5 py-4 overflow-x-auto">
-          <div className="flex items-center gap-2 min-w-max">
+          <div className="flex justify-center">
+            <div className="flex items-center gap-3 min-w-max">
 
-            {/* ── Entry sources ── */}
-            <div className="flex flex-col gap-1.5">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Entry</p>
-              {/* WA Reply */}
-              <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 min-w-[150px]">
-                <span className="text-sm">💬</span>
-                <div>
-                  <p className="text-xs font-semibold text-blue-800">WA Replied</p>
-                  <p className="text-[10px] text-blue-500">awaiting response</p>
+              {/* ── Entry sources ── */}
+              <div className="flex flex-col gap-1.5">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Entry</p>
+                {/* WA Reply */}
+                <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 min-w-[190px]">
+                  <span className="text-sm">💬</span>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-blue-800">WA Replied</p>
+                    <p className="text-[10px] text-blue-500">awaiting response</p>
+                  </div>
+                  <span className="text-sm font-bold text-blue-700">{activeLeads.length}</span>
                 </div>
-                <span className="ml-auto text-sm font-bold text-blue-700">{activeLeads.length}</span>
+                {/* MQL */}
+                <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-100 rounded-lg px-4 py-2.5 min-w-[190px]">
+                  <span className="text-sm">🟡</span>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-amber-800">MQL from Zoho</p>
+                    <p className="text-[10px] text-amber-500">synced daily</p>
+                  </div>
+                  <span className="text-sm font-bold text-amber-700">{mqlOutreachLeads.length}</span>
+                </div>
+                {/* Manual */}
+                <div className="flex items-center gap-2.5 bg-gray-50 border border-gray-100 rounded-lg px-4 py-2.5 min-w-[190px]">
+                  <span className="text-sm">✋</span>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-gray-600">Manual Entry</p>
+                    <p className="text-[10px] text-gray-400">queued by team</p>
+                  </div>
+                  <span className="text-xs text-gray-300 font-medium">—</span>
+                </div>
               </div>
-              {/* MQL */}
-              <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 min-w-[150px]">
-                <span className="text-sm">🟡</span>
-                <div>
-                  <p className="text-xs font-semibold text-amber-800">MQL from Zoho</p>
-                  <p className="text-[10px] text-amber-500">synced daily</p>
-                </div>
-                <span className="ml-auto text-sm font-bold text-amber-700">{mqlOutreachLeads.length}</span>
+
+              <ChevronRight size={18} className="text-gray-300 flex-shrink-0 self-center" />
+
+              {/* ── Call Queue ── */}
+              <div className={`flex flex-col justify-center rounded-xl border-2 px-5 py-4 min-w-[140px] text-center self-stretch
+                ${escalatedLeads.length > 0 ? 'border-amber-300 bg-amber-50' : 'border-amber-200 bg-amber-50/50'}`}>
+                <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider mb-1">Call Queue</p>
+                <p className="text-3xl font-bold text-amber-700">{callQueueLeads.length}</p>
+                {escalatedLeads.length > 0 && (
+                  <div className="mt-2 inline-flex items-center gap-1 bg-red-100 text-red-600 rounded-full px-2 py-0.5 text-[10px] font-semibold mx-auto">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    {escalatedLeads.length} escalated
+                  </div>
+                )}
               </div>
-              {/* Manual */}
-              <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 min-w-[150px]">
-                <span className="text-sm">✋</span>
-                <div>
-                  <p className="text-xs font-semibold text-gray-600">Manual Entry</p>
-                  <p className="text-[10px] text-gray-400">queued by team</p>
-                </div>
-                <span className="ml-auto text-xs text-gray-300 font-medium">—</span>
+
+              <ChevronRight size={18} className="text-gray-300 flex-shrink-0 self-center" />
+
+              {/* ── Discovery ── */}
+              <div className="flex flex-col justify-center rounded-xl border-2 border-blue-200 bg-blue-50/50 px-5 py-4 min-w-[130px] text-center self-stretch">
+                <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider mb-1">Discovery</p>
+                <p className="text-3xl font-bold text-blue-700">{discoveryQueueLeads.length}</p>
+                <p className="text-[10px] text-blue-400 mt-1">Gargi</p>
               </div>
-            </div>
 
-            <ChevronRight size={18} className="text-gray-300 flex-shrink-0 self-center" />
+              <ChevronRight size={18} className="text-gray-300 flex-shrink-0 self-center" />
 
-            {/* ── Call Queue ── */}
-            <div className={`flex flex-col justify-center rounded-xl border-2 px-5 py-4 min-w-[140px] text-center self-stretch
-              ${escalatedLeads.length > 0 ? 'border-amber-300 bg-amber-50' : 'border-amber-200 bg-amber-50/50'}`}>
-              <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider mb-1">Call Queue</p>
-              <p className="text-3xl font-bold text-amber-700">{callQueueLeads.length}</p>
-              {escalatedLeads.length > 0 && (
-                <div className="mt-2 inline-flex items-center gap-1 bg-red-100 text-red-600 rounded-full px-2 py-0.5 text-[10px] font-semibold mx-auto">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                  {escalatedLeads.length} escalated
+              {/* ── Today's Calls ── */}
+              <div className="flex flex-col justify-center rounded-xl border-2 border-green-200 bg-green-50/50 px-5 py-4 min-w-[180px] self-stretch">
+                <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wider mb-3">Today</p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-6">
+                    <span className="text-xs text-gray-600">Calls Went Through</span>
+                    <span className="text-sm font-bold text-green-600">{callsAnswered}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-6">
+                    <span className="text-xs text-gray-600">Not Gone Through</span>
+                    <span className="text-sm font-bold text-gray-500">{callsNoAnswer}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-6">
+                    <span className="text-xs text-gray-600">Call Back Later</span>
+                    <span className="text-sm font-bold text-amber-600">{callsCallBack}</span>
+                  </div>
                 </div>
-              )}
+                <p className="text-[10px] text-gray-400 mt-3">since 6:00 AM</p>
+              </div>
+
             </div>
-
-            <ChevronRight size={18} className="text-gray-300 flex-shrink-0 self-center" />
-
-            {/* ── Discovery ── */}
-            <div className="flex flex-col justify-center rounded-xl border-2 border-blue-200 bg-blue-50/50 px-5 py-4 min-w-[130px] text-center self-stretch">
-              <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider mb-1">Discovery</p>
-              <p className="text-3xl font-bold text-blue-700">{discoveryQueueLeads.length}</p>
-              <p className="text-[10px] text-blue-400 mt-1">Gargi</p>
-            </div>
-
-            <ChevronRight size={18} className="text-gray-300 flex-shrink-0 self-center" />
-
-            {/* ── Scheduled ── */}
-            <div className="flex flex-col justify-center rounded-xl border-2 border-gray-200 bg-gray-50 px-5 py-4 min-w-[130px] text-center self-stretch">
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Scheduled</p>
-              <p className="text-3xl font-bold text-gray-600">{scheduledLeads.length}</p>
-              <p className="text-[10px] text-gray-400 mt-1">future callbacks</p>
-            </div>
-
-            <ChevronRight size={18} className="text-gray-300 flex-shrink-0 self-center" />
-
-            {/* ── Resolved Today ── */}
-            <div className="flex flex-col justify-center rounded-xl border-2 border-green-200 bg-green-50/50 px-5 py-4 min-w-[130px] text-center self-stretch">
-              <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wider mb-1">Resolved</p>
-              <p className="text-3xl font-bold text-green-600">{resolvedToday ?? 0}</p>
-              <p className="text-[10px] text-green-400 mt-1">today</p>
-            </div>
-
           </div>
         </div>
       </div>
