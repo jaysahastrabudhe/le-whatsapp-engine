@@ -168,7 +168,7 @@ export async function createZohoNote(zohoLeadId: string, title: string, content:
   console.log(`[Zoho Note] Creating note for lead ${zohoLeadId}: "${title}"`);
 
   try {
-    const res = await fetch(`${ZOHO_BASE_URL}/Notes`, {
+    const res = await fetch(`${ZOHO_BASE_URL}/Leads/${zohoLeadId}/Notes`, {
       method: 'POST',
       headers: {
         'Authorization': `Zoho-oauthtoken ${token}`,
@@ -178,8 +178,6 @@ export async function createZohoNote(zohoLeadId: string, title: string, content:
         data: [{
           Note_Title:   title,
           Note_Content: content,
-          Parent_Id:    zohoLeadId,
-          $se_module:   'Leads',
         }],
       }),
       cache: 'no-store',
