@@ -1,8 +1,8 @@
 # LE WhatsApp Automation — Project Execution Tracker
 **Project:** ZOHO + Twilio WhatsApp Lead Engagement Engine
 **Started:** 23 March 2026
-**Last Updated:** 20 April 2026
-**Status:** 🟢 PHASE 5.0 COMPLETE — Campaign Manager v2 (Scheduling + Dedup) live; Unified Call Tracking & SLA overhauls active; Zoho note writeback via Log Call system.
+**Last Updated:** 21 April 2026
+**Status:** 🟢 PHASE 5.1 COMPLETE — MQL Outreach queue live; Zoho reconcile parallelised (timeout fixed); Zoho Notes bug fixed; Reports section launched (Daily Calls, Daily Inbound, Undelivered Downloads) with 14-day history.
 
 > **How to use this file**
 > - Mark tasks `[x]` when done, `[~]` when in progress, `[!]` when blocked
@@ -31,6 +31,7 @@
 | **Phase 3.9 — SLA Escalation + Manual Contact + UI + Follow-up Config** | **9** | **9** | **0** | **0** |
 | **Phase 4.0 — Dedup + Zoho Writeback + CSV Export/Import** | **9** | **9** | **0** | **0** |
 | **Phase 5.0 — Campaigns v2 + Unified Call Tracking & SLA** | **12** | **12** | **0** | **0** |
+| **Phase 5.1 — MQL Outreach + Reports + Zoho Fixes** | **11** | **11** | **0** | **0** |
 | Phase 6 — Next Sprint | 5 | 0 | 0 | 0 |
 | Phase 7 — Future | 5 | 0 | 0 | 0 |
 
@@ -428,6 +429,37 @@
 
 ---
 
+---
+
+## 🟢 PHASE 5.1 — MQL OUTREACH + REPORTS + ZOHO FIXES (21 April 2026) ✅ COMPLETE
+
+### MQL Outreach
+- [x] **P5.1.1 — `lead_stage` / `lead_status` columns** — migration `20260421_lead_stage.sql`. Synced on Zoho webhook upsert; written directly by call log API.
+- [x] **P5.1.2 — MQL Sync Cron** (`/api/cron/mql-sync`) — pulls MQL leads from Zoho, filters in-code, batch-upserts. Sets `zoho_synced_at` on insert to prevent reconcile flooding.
+- [x] **P5.1.3 — MQL Outreach box on SLA Monitor** — amber section showing active MQL leads excluding Contacted/Junk/Lost/Not Qualified statuses.
+- [x] **P5.1.4 — CallLogModal: `mql_outreach` queue type** — `getZohoDefaults()` auto-populates Lead Stage/Status. Zoho CRM Update section always visible and editable.
+
+### Zoho Fixes
+- [x] **P5.1.5 — Zoho Reconcile parallelised** — rewrote sequential loop to `Promise.allSettled`. Fixes 30s serverless timeout that was causing all reconcile runs to fail.
+- [x] **P5.1.6 — Zoho Reconcile URL fixed on cron-job.org** — URL was malformed (`...zoho-reconcilehttp:/`). Fixed via "Update Job URL" on cron-job.org.
+- [x] **P5.1.7 — Zoho Notes endpoint fixed** — `POST /Notes` with `Parent_Id` as plain string was silently failing. Switched to `POST /Leads/{id}/Notes` (module-specific endpoint, no parent reference needed).
+
+### Reports
+- [x] **P5.1.8 — Reports section** — "Reports" card on Control Hub; `/admin/reports` index with 14-day activity log table.
+- [x] **P5.1.9 — Daily Call Log report** (`/admin/reports/daily-calls`) — IST-date filtered, summary stats, by-caller breakdown, full table. Prev/Next navigation + 14-day history strip.
+- [x] **P5.1.10 — Daily Inbound Messages report** (`/admin/reports/daily-inbound`) — classification breakdown, hot leads callout, full table. Prev/Next navigation + 14-day history strip.
+- [x] **P5.1.11 — Undelivered Downloads report** (`/admin/reports/undelivered-downloads`) — full history from `csv_imports`, today's status callout (green/red), summary stats, download button.
+
+### Other Fixes
+- [x] **P5.1.12 (bug) — ManualReplyForm phone normalisation** — was stripping `+` prefix, causing "Lead not found" on search.
+- [x] **P5.1.13 (bug) — Daily Inbound report empty** — `wa_reply_class` was in the messages `select()` but lives on `leads`; moved to join.
+
+### Documentation
+- [x] **P5.1.14 — `docs/zoho-writeback.md`** — reference for all Zoho fields written, by source.
+- [x] **P5.1.15 — `docs/team-workflow.md`** — 8-step daily SOP table with owners and timing.
+
+---
+
 ## 🟠 PHASE 6 — NEXT SPRINT
 
 - [ ] **P6.1 — Named flow save/open in Logic Builder**
@@ -492,6 +524,10 @@
 | 20 | 27 Mar | Analytics timestamps displayed in UTC (Vercel server time) | Code Agent | ✅ Resolved | Added `timeZone: Asia/Kolkata` to `formatTime()`. |
 | 21 | 20 Apr | Zoho Upload template loading was broken (Array vs Object) | Code Agent | ✅ Resolved | Updated API response handling to support both formats. |
 | 22 | 20 Apr | Manual Call queue was separate from WhatsApp SLA | Code Agent | ✅ Resolved | Consolidated into unified "Pending Outreach" board. |
+| 23 | 21 Apr | Zoho Reconcile cron timing out on every run | Code Agent | ✅ Resolved | Sequential per-lead API calls hit 30s timeout. Parallelised with Promise.allSettled. |
+| 24 | 21 Apr | Zoho Reconcile cron URL malformed on cron-job.org | Ops | ✅ Resolved | URL was `...zoho-reconcilehttp:/`. Fixed via "Update Job URL" button on cron-job.org. |
+| 25 | 21 Apr | Zoho Notes not appearing in CRM after call log | Code Agent | ✅ Resolved | POST /Notes with Parent_Id as plain string silently failed. Switched to POST /Leads/{id}/Notes. |
+| 26 | 21 Apr | Daily Inbound report showing no records | Code Agent | ✅ Resolved | wa_reply_class selected directly on messages table (column is on leads). Moved to join. |
 
 
 ---
@@ -530,6 +566,9 @@
 | 20 Apr | Unified Outreach Strategy | Consolidated WhatsApp + Manual into a single "Log Call" process | Separate Resolve vs Call buttons |
 | 20 Apr | Callback Visibility | Added 4th box for "Scheduled Callbacks" (future follow-ups) | Vanishing "sleep mode" leads |
 | 20 Apr | Manual SLA Injection | Admin "Queue Call" button in the Message Log | System-only classification triggers |
+| 21 Apr | Zoho Reconcile write strategy | Batch dirty-flag pattern (hourly cron) for WA fields; direct awaited write for Lead_Stage/Lead_Status and Notes | Inline in every API call |
+| 21 Apr | MQL sync Zoho criteria | Filter in-code after fetching page 1 (Zoho ignores criteria on custom field names) | Trust Zoho server-side criteria filter |
+| 21 Apr | Reports date filtering | IST-day range (00:00–23:59:59 IST) computed at query time from YYYY-MM-DD param | UTC midnight cutoff (would show wrong day) |
 
 
 ---

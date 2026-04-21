@@ -5,6 +5,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.1.0] - 2026-04-21 (MQL Outreach + Reports + Zoho Fixes)
+
+### Added
+- **MQL Outreach Queue** — new amber box on SLA Monitor showing Zoho MQL-stage leads that haven't been contacted, disqualified, or marked junk. Excludes statuses: Contacted, Junk Lead, Lost Lead, Not Qualified.
+- **MQL Sync Cron** (`/api/cron/mql-sync`) — pulls MQL leads from Zoho daily via `criteria=(Lead_Stage:equals:MQL)`, filters in-code (Zoho ignores criteria on custom fields), batch-upserts into Supabase. Inserts set `zoho_synced_at` immediately (already came from Zoho — no WA fields to write back, prevents reconcile queue flooding).
+- **`lead_stage` / `lead_status` columns** on `leads` table — migration `20260421_lead_stage.sql`. Synced from Zoho on webhook upsert; written directly on call log.
+- **Reports section** — new "Reports" card on Control Hub, `/admin/reports` index page with 3 sub-reports:
+  - **Daily Call Log** (`/admin/reports/daily-calls`) — all calls logged on a given IST date, summary stats (total / answered / no-answer / call-back), breakdown by caller, full table with lead, status, next action, notes. Prev/Next date navigation.
+  - **Daily Inbound Messages** (`/admin/reports/daily-inbound`) — all inbound WA replies on a given IST date, classification breakdown, hot leads callout, full table. Prev/Next date navigation.
+  - **Undelivered Downloads** (`/admin/reports/undelivered-downloads`) — full history of failed-message CSV exports from `csv_imports` table. Today's download status callout (green ✅ / red ⚠️), total downloads / contacts / days with activity.
+- **14-day activity log** on Reports index — table showing each of the last 14 days with calls logged, inbound messages, and whether the CSV was downloaded (clickable counts, "Not downloaded" in red for missed days).
+- **14-day history strips** on Daily Call Log and Daily Inbound pages — clickable list of recent days with per-day counts, currently selected day highlighted.
+- **Documentation** — `docs/zoho-writeback.md` (all Zoho fields written by each system component) and `docs/team-workflow.md` (8-step daily SOP table).
+
+### Changed
+- **Zoho Reconcile cron** — rewrote sequential `for` loop to `Promise.allSettled` for parallel processing. With 50 leads × ~1–2s each, sequential was hitting the 30s serverless timeout; parallel completes in ~3–5s.
+- **Call Log API** (`/api/admin/call-log`) — Zoho field writeback and note creation are now **awaited** (was fire-and-forget). Returns `zoho: { fieldsWritten, noteCreated }` status in response.
+- **CallLogModal** — added `mql_outreach` queue type; `getZohoDefaults()` auto-populates Lead Stage / Lead Status based on queue + next action. Zoho CRM Update section always visible with editable dropdowns. Sticky header, scrollable body.
+- **CallLogWrapper** — amber button colour for `mql_outreach` queue.
+- **Analytics Message Log** — renamed "Window" column to "SLA"; added green "Scheduled" pill for leads in `call_queued / call_follow_up / discovery_call / wa_sla_escalated` states.
+- **ManualReplyForm** — rewritten with debounced typeahead search (220ms), dropdown showing matching leads with badges, required lead selection before submit. New `GET /api/admin/lead-search` endpoint (searches by name ilike or exact normalised phone).
+
+### Fixed
+- **Zoho Notes not appearing in CRM** — `POST /crm/v2/Notes` with `Parent_Id: zohoLeadId` (plain string) was silently failing. Switched to module-specific `POST /crm/v2/Leads/{id}/Notes` endpoint which requires only `Note_Title` and `Note_Content`.
+- **Zoho Reconcile cron timing out** — sequential per-lead Zoho API calls hit 30s timeout. Fixed by parallelising with `Promise.allSettled`.
+- **Zoho Reconcile cron URL malformed on cron-job.org** — URL was `...zoho-reconcilehttp:/` (concatenated). Fixed by updating job URL in cron-job.org.
+- **Daily Inbound report showing empty** — `wa_reply_class` was included in the direct `messages` select but the column lives on `leads`. Supabase returned null data silently. Moved to `leads!lead_id(wa_reply_class)` join.
+- **Manual reply phone normalisation** — `manual-reply/route.ts` was stripping `+` from the phone query, producing `91XXXXXXXXXX` vs Supabase's `+91XXXXXXXXXX`. Fixed by using `normaliseIndianPhone()`.
+
+---
+
 ## [5.0.0] - 2026-04-20 (Campaigns Phase 2 + Unified Call Tracking & SLA Overhaul)
 
 ### Added
