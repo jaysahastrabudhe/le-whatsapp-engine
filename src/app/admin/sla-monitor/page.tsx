@@ -108,6 +108,12 @@ export default async function SLAMonitorPage() {
   const activeLeads = active || [];
   const escalatedLeads = escalated || [];
 
+  // Pipeline visual — WA replied count (unactioned replies)
+  const { count: waRepliedCount } = await supabase
+    .from('leads')
+    .select('*', { count: 'exact', head: true })
+    .eq('wa_state', 'replied');
+
   // Pipeline visual — today's call log stats (since 6am IST)
   const today6am = new Date(
     new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T06:00:00+05:30'
@@ -166,7 +172,7 @@ export default async function SLAMonitorPage() {
                     <p className="text-xs font-semibold text-blue-800">WA Replied</p>
                     <p className="text-[10px] text-blue-500">awaiting response</p>
                   </div>
-                  <span className="text-sm font-bold text-blue-700">{activeLeads.length}</span>
+                  <span className="text-sm font-bold text-blue-700">{waRepliedCount ?? 0}</span>
                 </div>
                 {/* MQL */}
                 <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-100 rounded-lg px-4 py-2.5 min-w-[190px]">
