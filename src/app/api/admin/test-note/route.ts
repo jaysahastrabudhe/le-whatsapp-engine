@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const { data: candidates } = await supabase
       .from('leads')
       .select('id, name, zoho_lead_id')
-      .ilike('name', '%Jay%')
+      .ilike('name', '%Dev%')
       .not('zoho_lead_id', 'is', null)
       .limit(5);
 

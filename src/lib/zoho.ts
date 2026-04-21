@@ -183,17 +183,18 @@ export async function createZohoNote(zohoLeadId: string, title: string, content:
       cache: 'no-store',
     });
 
+    const rawBody = await res.text();
+
     if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(`Zoho Notes API Error: ${res.status} ${JSON.stringify(errData)}`);
+      throw new Error(`Zoho Notes API ${res.status}: ${rawBody}`);
     }
 
-    const result = await res.json();
+    const result = JSON.parse(rawBody);
     if (result.data && result.data[0].status === 'success') {
       console.log(`[Zoho Note] Created successfully for lead ${zohoLeadId}`);
       return true;
     } else {
-      console.warn(`[Zoho Note] Unexpected response for ${zohoLeadId}:`, JSON.stringify(result));
+      console.warn(`[Zoho Note] Non-success response for ${zohoLeadId} (HTTP ${res.status}):`, rawBody);
       return false;
     }
   } catch (err) {

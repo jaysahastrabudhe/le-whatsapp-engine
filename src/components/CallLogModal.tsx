@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 
-const TEAM_MEMBERS = ['Jonathan', 'Jay', 'Sharjeel', 'Gargi'];
+const TEAM_MEMBERS = ['Jonathan', 'Jay', 'Sharjeel', 'Gargi', 'Ankita'];
 
 const LEAD_STAGES  = ['Lead', 'MQL', 'SQL', 'Selection', 'Closing'];
 const LEAD_STATUSES = [
