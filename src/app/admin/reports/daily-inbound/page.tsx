@@ -56,7 +56,7 @@ export default async function DailyInboundPage({
   const date = params.date || today;
   const { start, end } = istDayRange(date);
 
-  // History — last 14 days
+  // History — last 14 days (message count for navigation strip)
   const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
   const { data: historyRows } = await supabase
     .from('messages')
@@ -78,17 +78,36 @@ export default async function DailyInboundPage({
     .lte('sent_at', end)
     .order('sent_at', { ascending: false });
 
-  const rows = (msgs || []) as any[];
+  const allMessages = (msgs || []) as any[];
 
-  // Summary stats
-  const total = rows.length;
+  // Group by lead — key = lead_id if available, else phone_normalised
+  type LeadGroup = {
+    phone: string;
+    leadInfo: any;
+    messages: any[]; // newest first
+    lastTime: string;
+  };
+  const grouped = new Map<string, LeadGroup>();
+  for (const row of allMessages) {
+    const key = row.lead_id || row.phone_normalised;
+    if (!grouped.has(key)) {
+      grouped.set(key, { phone: row.phone_normalised, leadInfo: row.leads, messages: [], lastTime: row.sent_at });
+    }
+    grouped.get(key)!.messages.push(row);
+  }
+  const leadRows = Array.from(grouped.values()).sort((a, b) =>
+    new Date(b.lastTime).getTime() - new Date(a.lastTime).getTime()
+  );
+
+  // Summary stats (per unique lead)
+  const totalLeads   = leadRows.length;
+  const totalMsgs    = allMessages.length;
   const classCounts: Record<string, number> = {};
-  for (const r of rows) {
-    const cls = r.leads?.wa_reply_class || 'unclassified';
+  for (const g of leadRows) {
+    const cls = g.leadInfo?.wa_reply_class || 'unclassified';
     classCounts[cls] = (classCounts[cls] || 0) + 1;
   }
-
-  const hotLeads = rows.filter(r => r.leads?.wa_hotness === 'hot');
+  const hotLeads = leadRows.filter(g => g.leadInfo?.wa_hotness === 'hot');
 
   const prevDate = new Date(new Date(`${date}T12:00:00+05:30`).getTime() - 86400000)
     .toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -111,9 +130,10 @@ export default async function DailyInboundPage({
         <div className="flex items-start justify-between mt-2 gap-4 flex-wrap">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">Daily Inbound Messages</h1>
-            <p className="text-gray-500 mt-1">All inbound WhatsApp replies on {new Date(`${date}T12:00:00+05:30`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            <p className="text-gray-500 mt-1">
+              {new Date(`${date}T12:00:00+05:30`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
           </div>
-          {/* Date nav */}
           <div className="flex items-center gap-2">
             <Link href={`/admin/reports/daily-inbound?date=${prevDate}`}
               className="px-3 py-1.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">← Prev</Link>
@@ -126,8 +146,11 @@ export default async function DailyInboundPage({
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white border rounded-xl p-4 text-center shadow-sm">
-          <div className="text-3xl font-bold text-gray-900">{total}</div>
-          <div className="text-xs text-gray-500 mt-1 font-medium uppercase tracking-wide">Total Inbound</div>
+          <div className="text-3xl font-bold text-gray-900">{totalLeads}</div>
+          <div className="text-xs text-gray-500 mt-1 font-medium uppercase tracking-wide">Unique Leads</div>
+          {totalMsgs !== totalLeads && (
+            <div className="text-xs text-gray-400 mt-0.5">{totalMsgs} messages total</div>
+          )}
         </div>
         <div className="bg-white border rounded-xl p-4 text-center shadow-sm">
           <div className="text-3xl font-bold text-green-600">{classCounts['interested'] || 0}</div>
@@ -166,69 +189,94 @@ export default async function DailyInboundPage({
             Hot Leads — Action Required
           </h3>
           <div className="flex flex-wrap gap-3">
-            {hotLeads.map(r => {
-              const lead = r.leads as any;
-              return (
-                <div key={r.id} className="bg-white border border-red-200 rounded-lg px-3 py-2 text-sm">
-                  <div className="font-semibold text-gray-900">{lead?.name || r.phone_normalised}</div>
-                  <div className="text-xs text-gray-400 font-mono">{r.phone_normalised}</div>
-                </div>
-              );
-            })}
+            {hotLeads.map(g => (
+              <Link key={g.phone}
+                href={`/admin/analytics?tab=messages&filter=inbound&q=${encodeURIComponent(g.phone)}`}
+                className="bg-white border border-red-200 rounded-lg px-3 py-2 text-sm hover:border-red-400 transition-colors">
+                <div className="font-semibold text-gray-900">{g.leadInfo?.name || g.phone}</div>
+                <div className="text-xs text-gray-400 font-mono">{g.phone}</div>
+              </Link>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Table */}
-      {rows.length === 0 ? (
+      {/* Table — one row per lead */}
+      {leadRows.length === 0 ? (
         <div className="bg-white border rounded-xl p-12 text-center text-gray-400 shadow-sm">
           No inbound messages on this date.
         </div>
       ) : (
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b bg-gray-50 text-xs text-gray-400">
+            Click any row to open the full message log for that lead.
+          </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 border-b text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 text-left">Time (IST)</th>
+              <tr className="border-b text-xs text-gray-500 uppercase tracking-wider bg-gray-50/60">
+                <th className="px-4 py-3 text-left">Last Message (IST)</th>
                 <th className="px-4 py-3 text-left">Lead</th>
+                <th className="px-4 py-3 text-center">Msgs</th>
                 <th className="px-4 py-3 text-left">Classification</th>
                 <th className="px-4 py-3 text-left">Hotness</th>
-                <th className="px-4 py-3 text-left">Message</th>
+                <th className="px-4 py-3 text-left">Last 2 Messages</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {rows.map((row) => {
-                const lead = row.leads as any;
+              {leadRows.map((g) => {
+                const lead = g.leadInfo as any;
+                const msgLink = `/admin/analytics?tab=messages&filter=inbound&q=${encodeURIComponent(g.phone)}`;
+                const last2 = g.messages.slice(0, 2).map(m => m.content).filter(Boolean);
+                const combinedText = last2.join(' · ');
                 return (
-                  <tr key={row.id} className={`hover:bg-gray-50 transition-colors ${lead?.wa_hotness === 'hot' ? 'bg-red-50/40' : ''}`}>
+                  <tr key={g.phone}
+                    className={`hover:bg-blue-50/30 transition-colors cursor-pointer ${lead?.wa_hotness === 'hot' ? 'bg-red-50/40' : ''}`}
+                    onClick={undefined}>
                     <td className="px-4 py-3 whitespace-nowrap text-gray-500 font-mono text-xs">
-                      {formatIST(row.sent_at)}
+                      <Link href={msgLink} className="block">
+                        {formatIST(g.lastTime)}
+                      </Link>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-900">{lead?.name || '—'}</div>
-                      <div className="text-xs text-gray-400 font-mono">{row.phone_normalised}</div>
-                      {lead?.lead_stage && (
-                        <span className="inline-block mt-0.5 text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{lead.lead_stage}</span>
-                      )}
+                      <Link href={msgLink} className="block">
+                        <div className="font-semibold text-gray-900">{lead?.name || '—'}</div>
+                        <div className="text-xs text-gray-400 font-mono">{g.phone}</div>
+                        {lead?.lead_stage && (
+                          <span className="inline-block mt-0.5 text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{lead.lead_stage}</span>
+                        )}
+                      </Link>
                     </td>
-                    <td className="px-4 py-3">
-                      {lead?.wa_reply_class ? (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${CLASS_STYLES[lead.wa_reply_class] || 'bg-gray-100 text-gray-600'}`}>
-                          {CLASS_LABELS[lead.wa_reply_class] || lead.wa_reply_class}
+                    <td className="px-4 py-3 text-center">
+                      <Link href={msgLink} className="block">
+                        <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${g.messages.length > 1 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-500'}`}>
+                          {g.messages.length}
                         </span>
-                      ) : (
-                        <span className="text-gray-300 italic text-xs">unclassified</span>
-                      )}
+                      </Link>
                     </td>
                     <td className="px-4 py-3">
-                      {lead?.wa_hotness ? (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${HOTNESS_STYLES[lead.wa_hotness] || 'bg-gray-100 text-gray-600'}`}>
-                          {lead.wa_hotness}
-                        </span>
-                      ) : '—'}
+                      <Link href={msgLink} className="block">
+                        {lead?.wa_reply_class ? (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${CLASS_STYLES[lead.wa_reply_class] || 'bg-gray-100 text-gray-600'}`}>
+                            {CLASS_LABELS[lead.wa_reply_class] || lead.wa_reply_class}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 italic text-xs">—</span>
+                        )}
+                      </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-600 max-w-sm">
-                      <p className="line-clamp-2 text-xs">{row.content || <span className="text-gray-300 italic">No content</span>}</p>
+                    <td className="px-4 py-3">
+                      <Link href={msgLink} className="block">
+                        {lead?.wa_hotness ? (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${HOTNESS_STYLES[lead.wa_hotness] || 'bg-gray-100 text-gray-600'}`}>
+                            {lead.wa_hotness}
+                          </span>
+                        ) : '—'}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 max-w-sm">
+                      <Link href={msgLink} className="block">
+                        <p className="text-xs text-gray-600 line-clamp-2">{combinedText || <span className="text-gray-300 italic">No content</span>}</p>
+                      </Link>
                     </td>
                   </tr>
                 );
@@ -247,8 +295,8 @@ export default async function DailyInboundPage({
           {historyDays.map((day) => {
             const count      = countByDay[day] || 0;
             const isSelected = day === date;
-            const isToday    = day === today;
-            const label = isToday ? 'Today' : new Date(`${day}T12:00:00+05:30`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short' });
+            const isTodayDay = day === today;
+            const label = isTodayDay ? 'Today' : new Date(`${day}T12:00:00+05:30`).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short' });
             return (
               <Link key={day} href={`/admin/reports/daily-inbound?date=${day}`}
                 className={`flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors ${isSelected ? 'bg-green-50' : ''}`}>
