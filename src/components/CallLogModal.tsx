@@ -57,7 +57,8 @@ export default function CallLogModal({
 
   const handleContactStatusChange = (val: string) => {
     setContactStatus(val);
-    if (val === 'no_answer') setNextAction('no_answer');
+    if (val === 'no_answer')       setNextAction('no_answer');
+    if (val === 'call_back_later') setNextAction('followup_on_date');
   };
 
   const handleSubmit = async (e: { preventDefault(): void }) => {
@@ -141,6 +142,23 @@ export default function CallLogModal({
             )}
           </div>
 
+          {/* Callback date — shown immediately when Call Back Later is selected */}
+          {contactStatus === 'call_back_later' && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold text-gray-700">
+                Call Back Date & Time <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="datetime-local"
+                required
+                value={nextActionDate}
+                onChange={e => setNextActionDate(e.target.value)}
+                className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <p className="text-xs text-gray-400">Lead will reappear in the call queue on this date.</p>
+            </div>
+          )}
+
           {/* Notes */}
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-gray-700">
@@ -204,7 +222,7 @@ export default function CallLogModal({
               )}
             </div>
 
-            {nextAction === 'followup_on_date' && (
+            {nextAction === 'followup_on_date' && contactStatus !== 'call_back_later' && (
               <div className="pt-1 pl-7">
                 <input type="datetime-local" required value={nextActionDate} onChange={e => setNextActionDate(e.target.value)}
                   className="w-full border border-blue-200 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
