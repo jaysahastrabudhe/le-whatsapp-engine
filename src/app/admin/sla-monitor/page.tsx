@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import ManualReplyForm from '@/components/ManualReplyForm';
 import CallLogWrapper from '@/components/CallLogWrapper';
+import TriggerCronButton from '@/components/TriggerCronButton';
 
 export const revalidate = 0;
 
@@ -201,6 +202,7 @@ export default async function SLAMonitorPage() {
             <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{mqlOutreachLeads.length}</span>
           </h2>
           <span className="text-xs text-gray-400 ml-1">Lead Stage = MQL · not yet contacted or disqualified</span>
+          <TriggerCronButton cron="mql-sync" label="Sync from Zoho" />
         </div>
         <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
           <table className="w-full text-sm text-left">
