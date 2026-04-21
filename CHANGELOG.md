@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.3.0] - 2026-04-21 (SLA Pipeline Visual + MQL Sync Trigger + UX Fixes)
+
+### Added
+- **Lead Pipeline visual** — horizontal live-count strip at the top of the SLA Monitor page. Shows three entry sources (WA Replied, MQL from Zoho, Manual), Call Queue with pulsing red escalated badge, Discovery, Scheduled Callbacks, and Resolved Today. All counts server-rendered on page load. Scrolls horizontally on small screens.
+- **Manual MQL Sync trigger** — "Sync from Zoho" button next to the MQL Outreach heading on the SLA page. Fires `mql-sync` cron immediately without waiting for the daily schedule. Shows live feedback (Syncing… → N processed → resets after 4s).
+- **`/api/admin/trigger-cron`** — generic admin endpoint mapping cron names to their routes and firing them server-side with `CRON_SECRET`. Supports `mql-sync`, `zoho-reconcile`, `reengagement`, `sla-monitor`. Reusable `TriggerCronButton` component for any future cron trigger buttons.
+- **Callback date picker on "Call Back Later"** — selecting "Call Back Later" as contact status now immediately shows a required date/time input. Auto-selects "Follow up later" as next action. Eliminates the extra step of picking next action separately.
+
+### Changed
+- **Ankita added to team members** — appears in the caller dropdown across all Log Call modals.
+
+---
+
 ## [5.2.0] - 2026-04-21 (Zoho Writeback Completeness + Notes OAuth Fix)
 
 ### Added

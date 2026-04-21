@@ -33,6 +33,7 @@
 | **Phase 5.0 — Campaigns v2 + Unified Call Tracking & SLA** | **12** | **12** | **0** | **0** |
 | **Phase 5.1 — MQL Outreach + Reports + Zoho Fixes** | **11** | **11** | **0** | **0** |
 | **Phase 5.2 — Zoho Writeback Completeness + Notes OAuth Fix** | **7** | **7** | **0** | **0** |
+| **Phase 5.3 — SLA Pipeline Visual + MQL Trigger + UX** | **4** | **4** | **0** | **0** |
 | Phase 6 — Next Sprint | 5 | 0 | 0 | 0 |
 | Phase 7 — Future | 5 | 0 | 0 | 0 |
 
@@ -476,6 +477,15 @@
 ### UI
 - [x] **P5.2.7 — Daily Inbound report per-lead view** — Refactored to one row per lead (grouped by `lead_id || phone_normalised`). Msgs count column added; message column shows last 2 messages combined. Clicking a row navigates to analytics message log pre-filtered for that lead.
 - [x] **P5.2.8 — Ankita added to team members** — Added to `TEAM_MEMBERS` in `CallLogModal.tsx`.
+
+---
+
+## 🟢 PHASE 5.3 — SLA PIPELINE VISUAL + MQL TRIGGER + UX (21 April 2026) ✅ COMPLETE
+
+- [x] **P5.3.1 — Lead Pipeline visual** — horizontal live-count strip at top of SLA Monitor. Entry sources (WA Replied, MQL, Manual) → Call Queue (with escalated badge) → Discovery → Scheduled → Resolved Today. Server-rendered counts, horizontal scroll on small screens.
+- [x] **P5.3.2 — Manual MQL Sync trigger** — "Sync from Zoho" button on SLA page. Generic `/api/admin/trigger-cron` endpoint + reusable `TriggerCronButton` client component. Supports mql-sync, zoho-reconcile, reengagement, sla-monitor.
+- [x] **P5.3.3 — Callback date picker** — "Call Back Later" contact status now immediately shows required date/time input and auto-selects followup_on_date next action.
+- [x] **P5.3.4 — Ankita added to team members** — caller dropdown in CallLogModal.
 
 ---
 
