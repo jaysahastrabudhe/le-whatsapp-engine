@@ -108,11 +108,13 @@ export default async function SLAMonitorPage() {
   const activeLeads = active || [];
   const escalatedLeads = escalated || [];
 
-  // Pipeline visual — WA replied count (unactioned replies)
+  // Pipeline visual — WA replied count (unactioned replies since call log launch on 2026-04-21)
+  const CALL_LOG_LAUNCH = new Date('2026-04-21T00:00:00+05:30').toISOString();
   const { count: waRepliedCount } = await supabase
     .from('leads')
     .select('*', { count: 'exact', head: true })
-    .eq('wa_state', 'replied');
+    .eq('wa_state', 'replied')
+    .gte('wa_last_inbound_at', CALL_LOG_LAUNCH);
 
   // Pipeline visual — today's call log stats (since 6am IST)
   const today6am = new Date(
