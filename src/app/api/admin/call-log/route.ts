@@ -102,7 +102,7 @@ export async function POST(request: Request) {
           })}`;
         }
         try {
-          await createZohoNote(zohoLeadId, title, content);
+          zohoNoteOk = await createZohoNote(zohoLeadId, title, content);
         } catch (e: any) {
           console.error('[Call Log] Zoho note creation failed:', e.message);
           zohoNoteOk = false;

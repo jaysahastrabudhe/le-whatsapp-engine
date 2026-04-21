@@ -11,7 +11,7 @@ export async function handleOptOut(leadId: string) {
   console.log(`[Rules Engine] Processing STOP/Opt-Out for lead ${leadId}`);
   const { error } = await supabase
     .from('leads')
-    .update({ wa_opt_in: false, wa_state: 'wa_closed', updated_at: new Date().toISOString() })
+    .update({ wa_opt_in: false, wa_state: 'wa_closed', updated_at: new Date().toISOString(), zoho_synced_at: null })
     .eq('id', leadId);
   if (error) {
     console.error(`[Rules Engine] DB Error processing Opt-Out for ${leadId}`, error);
@@ -99,7 +99,7 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
       template_sid: null,
       reason: action.reason,
     });
-    await supabase.from('leads').update({ wa_state: 'wa_manual_triage', updated_at: new Date().toISOString() }).eq('id', lead.id);
+    await supabase.from('leads').update({ wa_state: 'wa_manual_triage', updated_at: new Date().toISOString(), zoho_synced_at: null }).eq('id', lead.id);
     return;
   }
 
@@ -178,6 +178,6 @@ async function markUnrouted(lead: Lead, trigger: RoutingTrigger, logNote: string
 
   await supabase
     .from('leads')
-    .update({ wa_state: 'wa_unrouted', updated_at: new Date().toISOString() })
+    .update({ wa_state: 'wa_unrouted', updated_at: new Date().toISOString(), zoho_synced_at: null })
     .eq('id', lead.id);
 }

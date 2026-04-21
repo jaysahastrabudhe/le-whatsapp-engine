@@ -32,15 +32,17 @@ export async function processStatusUpdate(job: Job) {
     return { success: true, status: MessageStatus, leadSynced: false };
   }
 
-  const updateObj: Record<string, string | boolean> = { wa_last_status: normalisedStatus };
-  
+  const updateObj: Record<string, string | boolean | null> = { wa_last_status: normalisedStatus };
+
   // 3. Twilio Error codes handling & Compliance
   if (ErrorCode === '63032') { // User Opted Out / STOP
     updateObj.wa_opt_in = false;
     updateObj.wa_state = 'opted_out';
+    updateObj.zoho_synced_at = null;
   } else if (ErrorCode === '21211' || ErrorCode === '63016') { // Invalid number or Template not approved
     updateObj.wa_state = 'invalid_number'; // or failed
     updateObj.wa_hotness = 'dead';
+    updateObj.zoho_synced_at = null;
   }
 
   const { error: leadErr } = await supabase

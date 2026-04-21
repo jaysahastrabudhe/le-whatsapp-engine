@@ -14,6 +14,7 @@ export async function POST(request: Request) {
       wa_state:                 'wa_sla_resolved',
       wa_human_response_due_at: null,
       updated_at:               new Date().toISOString(),
+      zoho_synced_at:           null,
     })
     .eq('id', leadId);
 

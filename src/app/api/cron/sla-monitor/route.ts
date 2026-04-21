@@ -63,6 +63,7 @@ async function handleSla(request: Request) {
         wa_state:                  'wa_sla_escalated',
         wa_human_response_due_at:  null,
         updated_at:                now,
+        zoho_synced_at:            null,
       })
       .eq('id', lead.id);
 
