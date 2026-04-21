@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { createZohoNote } from '@/lib/zoho';
+import { createZohoNote, updateZohoLead } from '@/lib/zoho';
 
 export async function POST(request: Request) {
   try {
-    const { leadId, zohoLeadId, caller, calledAt, contactStatus, notes, nextAction, nextActionDate, currentQueue } = await request.json();
+    const {
+      leadId, zohoLeadId, caller, calledAt, contactStatus,
+      notes, nextAction, nextActionDate, currentQueue,
+      leadStage, leadStatus,
+    } = await request.json();
 
     if (!leadId || !caller || !calledAt || !contactStatus || !nextAction) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -20,40 +24,42 @@ export async function POST(request: Request) {
         contact_status: contactStatus,
         notes,
         next_action: nextAction,
-        next_action_date: nextActionDate || null
+        next_action_date: nextActionDate || null,
       });
 
     if (logError) throw logError;
 
-    // 2. Update Lead State
-    let updateFields: any = {
+    // 2. Update Lead State in Supabase
+    const updateFields: Record<string, any> = {
       call_assigned_to: caller,
       updated_at: new Date().toISOString(),
-      wa_human_response_due_at: null // Clear WhatsApp SLA timer since call counts as human response
+      wa_human_response_due_at: null, // Any call counts as human response — clear WA SLA timer
     };
 
     if (contactStatus === 'no_answer') {
-      // Keep in same queue, but if it was just a whatsapp reply, convert it to a queued call so it is tracked correctly
       if (currentQueue === 'whatsapp_reply') {
         updateFields.wa_state = 'call_queued';
       }
+      // mql_outreach + no_answer: stays visible (lead_stage stays MQL, handled below)
     } else if (nextAction === 'followup_on_date') {
-      // If it was already in discovery call queue, keep it there but add followup date.
-      if (currentQueue === 'discovery_call') {
-         updateFields.wa_state = 'discovery_call';
-      } else {
-         updateFields.wa_state = 'call_queued'; // Keep in call queued but it will be hidden until date
-      }
+      updateFields.wa_state = currentQueue === 'discovery_call' ? 'discovery_call' : 'call_queued';
       updateFields.followup_call_at = nextActionDate;
     } else if (nextAction === 'discovery_call') {
       updateFields.wa_state = 'discovery_call';
-      updateFields.followup_call_at = null; // Clear if any
+      updateFields.followup_call_at = null;
     } else if (nextAction === 'ready_to_fill') {
       updateFields.wa_state = 'wa_sla_resolved';
       updateFields.followup_call_at = null;
+    } else if (nextAction === 'close_lead') {
+      updateFields.wa_state = 'wa_closed';
+      updateFields.followup_call_at = null;
     }
 
-    // Reset sync field so Zoho gets state update too (reconcile runs hourly)
+    // Write CRM stage fields if provided
+    if (leadStage)  updateFields.lead_stage  = leadStage;
+    if (leadStatus) updateFields.lead_status = leadStatus;
+
+    // Mark dirty for reconcile (WA fields only — Lead_Stage written directly below)
     updateFields.zoho_synced_at = null;
 
     const { error: updateError } = await supabase
@@ -63,18 +69,51 @@ export async function POST(request: Request) {
 
     if (updateError) throw updateError;
 
-    // 3. Write note to Zoho immediately
-    if (zohoLeadId && notes) {
-       let title = `Call Log: ${contactStatus.replace(/_/g, ' ').toUpperCase()}`;
-       let content = `Caller: ${caller}\nAction: ${nextAction.replace(/_/g, ' ').toUpperCase()}\n\nNotes:\n${notes}`;
-       if (nextActionDate) {
-         content += `\n\nScheduled for: ${new Date(nextActionDate).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
-       }
-       // Don't await in main request thread to make UI snappy
-       createZohoNote(zohoLeadId, title, content).catch(e => console.error(e));
+    // 3. Write to Zoho immediately (both note and field update)
+    let zohoNoteOk = true;
+    let zohoFieldsOk = true;
+
+    if (zohoLeadId) {
+      // 3a. Field writeback — Lead_Stage, Lead_Status (awaited)
+      if (leadStage || leadStatus) {
+        try {
+          await updateZohoLead(zohoLeadId, {
+            ...(leadStage  && { Lead_Stage:  leadStage }),
+            ...(leadStatus && { Lead_Status: leadStatus }),
+          });
+        } catch (e: any) {
+          console.error('[Call Log] Zoho field writeback failed:', e.message);
+          zohoFieldsOk = false;
+        }
+      }
+
+      // 3b. Note writeback (awaited)
+      if (notes) {
+        const title = `Call Log: ${contactStatus.replace(/_/g, ' ').toUpperCase()}`;
+        let content = `Caller: ${caller}\nAction: ${nextAction.replace(/_/g, ' ').toUpperCase()}`;
+        if (leadStage)  content += `\nLead Stage → ${leadStage}`;
+        if (leadStatus) content += `\nLead Status → ${leadStatus}`;
+        content += `\n\nNotes:\n${notes}`;
+        if (nextActionDate) {
+          content += `\n\nScheduled for: ${new Date(nextActionDate).toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata', hour12: true,
+            month: 'long', day: 'numeric', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          })}`;
+        }
+        try {
+          await createZohoNote(zohoLeadId, title, content);
+        } catch (e: any) {
+          console.error('[Call Log] Zoho note creation failed:', e.message);
+          zohoNoteOk = false;
+        }
+      }
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      zoho: { fieldsWritten: zohoFieldsOk, noteCreated: zohoNoteOk },
+    });
   } catch (error: any) {
     console.error('[Call Log] Error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });

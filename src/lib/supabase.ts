@@ -16,6 +16,9 @@ export type Lead = {
   persona: string | null;          // 'Student' | 'Parent'
   academic_level: string | null;   // '12th' | '11th' | '10th' | 'Graduate' | 'Already in college'
   relocate_to_pune: string | null; // 'Yes' | 'No'
+  // CRM stage fields (synced from Zoho)
+  lead_stage: string | null;        // 'Lead' | 'MQL' | 'SQL' | 'Selection' | 'Closing'
+  lead_status: string | null;       // 'Attempted to Contact' | 'Contacted' | 'Not Qualified' | etc.
   // Computed / written by rules engine
   urgency: string | null;          // 'HIGH' | 'MEDIUM' | 'LOW'
   lead_track: string | null;       // 'enterprise_leadership' | 'family_business' | 'venture_builder'

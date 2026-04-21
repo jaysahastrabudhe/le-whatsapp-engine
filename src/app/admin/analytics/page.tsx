@@ -43,7 +43,7 @@ type MsgRow = {
   sent_at: string | null;
   delivered_at: string | null;
   read_at: string | null;
-  leads: { name: string | null; wa_last_inbound_at: string | null; wa_hotness: string | null } | null;
+  leads: { name: string | null; wa_last_inbound_at: string | null; wa_hotness: string | null; wa_state: string | null } | null;
 };
 
 const PAGE_SIZE = 50;
@@ -106,7 +106,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
     const { data, error } = await applyFilters(
       supabase
         .from('messages')
-        .select('id, lead_id, direction, phone_normalised, template_id, template_variant_id, content, status, error_code, sent_at, delivered_at, read_at, leads!lead_id(name, wa_last_inbound_at, wa_hotness)')
+        .select('id, lead_id, direction, phone_normalised, template_id, template_variant_id, content, status, error_code, sent_at, delivered_at, read_at, leads!lead_id(name, wa_last_inbound_at, wa_hotness, wa_state)')
         .order('sent_at', { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1)
     );
@@ -194,7 +194,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Error</th>
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Time</th>
                 <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Hotness</th>
-                <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">Window</th>
+                <th className="p-3 font-semibold text-gray-600 whitespace-nowrap">SLA</th>
               </tr>
             </thead>
             <tbody>
@@ -204,6 +204,9 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                   row.leads?.wa_last_inbound_at &&
                   row.leads.wa_last_inbound_at > windowCutoff
                 );
+                const SLA_STATES = new Set(['call_queued', 'call_follow_up', 'discovery_call', 'wa_sla_escalated']);
+                const isScheduled = !!(row.leads?.wa_state && SLA_STATES.has(row.leads.wa_state));
+
                 return (
                   <tr key={row.id} className={`border-b hover:bg-gray-50/50 ${isInbound ? 'bg-indigo-50/30' : ''}`}>
                     <td className="p-3">
@@ -268,7 +271,12 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                       ) : <span className="text-gray-200 text-xs">—</span>}
                     </td>
                     <td className="p-3 whitespace-nowrap">
-                      {isInbound && inWindow && row.lead_id && row.phone_normalised ? (
+                      {isScheduled ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                          Scheduled
+                        </span>
+                      ) : isInbound && inWindow && row.lead_id && row.phone_normalised ? (
                         <div className="flex items-center gap-2">
                           <span
                             title="24-hour reply window open"
@@ -283,7 +291,7 @@ export default async function AnalyticsPage({ searchParams }: Props) {
                         </div>
                       ) : isInbound && !inWindow && row.lead_id ? (
                         <div className="flex items-center gap-2">
-                           <QueueCallButton leadId={row.lead_id} />
+                          <QueueCallButton leadId={row.lead_id} />
                         </div>
                       ) : !isInbound && row.status === 'failed' && row.lead_id && row.phone_normalised ? (
                         <MarkManualButton

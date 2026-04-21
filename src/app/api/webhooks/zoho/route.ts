@@ -184,6 +184,8 @@ export async function POST(req: NextRequest) {
       academic_level: academicLevel,
       relocate_to_pune: data.relocate_to_pune || data.If_selected_would_you_be_comfortable_relocating || data.Are_you_ready_to_come_to_Pune_and_make_the_next_3 || null,
       urgency,
+      lead_stage:  data.Lead_Stage  || data['Lead Stage']  || null,
+      lead_status: data.Lead_Status || data['Lead Status'] || null,
     };
 
     // Check if lead already exists (by phone)

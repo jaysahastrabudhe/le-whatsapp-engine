@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { normaliseIndianPhone } from '@/lib/utils/phoneNormaliser';
 
 export async function POST(request: Request) {
   try {
@@ -9,12 +10,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Phone number is required' }, { status: 400 });
     }
 
-    // Normalize phone (strip + and spaces)
-    let phoneNormalised = phone.replace(/[^0-9]/g, '');
-    if (phoneNormalised.length === 10) {
-      phoneNormalised = '91' + phoneNormalised; // Assuming India if 10 digits
-    } else if (phoneNormalised.startsWith('0')) {
-      phoneNormalised = '91' + phoneNormalised.substring(1);
+    const phoneNormalised = normaliseIndianPhone(phone);
+    if (!phoneNormalised) {
+      return NextResponse.json({ error: 'Invalid phone number. Enter a 10-digit Indian mobile number.' }, { status: 400 });
     }
 
     // Look up lead

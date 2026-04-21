@@ -1,8 +1,8 @@
 # LE WhatsApp Automation — Project Execution Tracker
 **Project:** ZOHO + Twilio WhatsApp Lead Engagement Engine
 **Started:** 23 March 2026
-**Last Updated:** 1 April 2026
-**Status:** 🟢 PHASE 1, 2, 3.3–4.0 COMPLETE — Engine live; follow-up dedup fixed; Zoho batch writeback active; CSV export/import for failed messages.
+**Last Updated:** 20 April 2026
+**Status:** 🟢 PHASE 5.0 COMPLETE — Campaign Manager v2 (Scheduling + Dedup) live; Unified Call Tracking & SLA overhauls active; Zoho note writeback via Log Call system.
 
 > **How to use this file**
 > - Mark tasks `[x]` when done, `[~]` when in progress, `[!]` when blocked
@@ -30,8 +30,9 @@
 | **Phase 3.8 — Routing Audit + Graph Hardening** | **8** | **8** | **0** | **0** |
 | **Phase 3.9 — SLA Escalation + Manual Contact + UI + Follow-up Config** | **9** | **9** | **0** | **0** |
 | **Phase 4.0 — Dedup + Zoho Writeback + CSV Export/Import** | **9** | **9** | **0** | **0** |
-| Phase 4 — Next Sprint | 4 | 0 | 0 | 0 |
-| Phase 5 — Future | 5 | 0 | 0 | 0 |
+| **Phase 5.0 — Campaigns v2 + Unified Call Tracking & SLA** | **12** | **12** | **0** | **0** |
+| Phase 6 — Next Sprint | 5 | 0 | 0 | 0 |
+| Phase 7 — Future | 5 | 0 | 0 | 0 |
 
 ---
 
@@ -404,28 +405,41 @@
 
 ---
 
-## 🟠 PHASE 4 — NEXT SPRINT
+## 🟢 PHASE 5.0 — CAMPAIGN v2 + UNIFIED CALL TRACKING & SLA (20 April 2026) ✅ COMPLETE
 
-- [ ] **P4.1 — Named flow save/open in Logic Builder**
-  - Allow multiple `workflow_rules` rows. One row `is_active = true` evaluated at runtime.
-  - UI additions: flow list panel (list / open / duplicate / create new), active/draft toggle, flow name editing.
-  - Enables versioning and A/B draft testing of routing logic.
+### Campaigns Phase 2 & 3
+- [x] **P5.1 — Campaign Scheduling**: Integrated `datetime-local` picker; campaigns can now be set to `scheduled`.
+- [x] **P5.2 — Launcher Cron**: `/api/cron/campaign-launcher` handles auto-initializing scheduled campaigns during send windows.
+- [x] **P5.3 — Global Deduplication Window**: Prevent spam by excluding leads messaged within the last N days.
+- [x] **P5.4 — Live Audience Preview**: Real-time lead count API on the campaign create form.
+- [x] **P5.5 — Operational Guidelines UI**: Injected best-practices and safety rules into the builder.
 
-- [ ] **P4.2 — Editable button payload map**
-  - Admin UI (similar to `/admin/classification`) where button postback IDs are mapped to reply class, hotness, state transition, and special actions (`lead_track`, `webinar_rsvp`, counsellor flag).
-  - Eliminates code change requirement for every new quick reply template.
+### Call Tracking & SLA Overhaul
+- [x] **P5.6 — Unified "Pending Outreach" Board**: Consolidated WhatsApp replies and manual call queues into one hub.
+- [x] **P5.7 — Universal "Log Call" Workflow**: Replaced basic "Resolve" with a full modal capturing notes, results, and follow-ups.
+- [x] **P5.8 — Zoho CRM Note Writeback**: Call results and notes automatically pushed to Zoho lead records.
+- [x] **P5.9 — Discovery Call Queue**: Priority bucket for leads marked for high-value follow-up.
+- [x] **P5.10 — Scheduled Callbacks (4th Box)**: New monitor section for leads in "sleep mode" with future follow-ups.
+- [x] **P5.11 — Manual Queue Injection**: "Queue Call" button in Analytics allows manual injection of any inbound lead.
 
-- [ ] **P4.3 — Campaign reply awareness**
-  - Use `wa_last_template` in `inboundProcessor` to suppress specific downstream actions for campaign-originated replies.
-  - Specifically: `WEBINAR_YES` tap → flag counsellor but do NOT auto-send `wa_counsellor_intro` (counsellor sends joining details manually).
-
-- [ ] **P4.4 — Storysells proper template**
-  - Create a Storysells-specific WhatsApp template in Twilio and get it approved.
-  - Update Logic Builder routing: `program = Storysells` → new Storysells template (replace `wa_welcome_manual` placeholder).
+### Stability & Bug Fixes
+- [x] **P5.12 — Zoho Upload Template Fix**: Fixed JSON array/object mismatch on Zoho upload page.
+- [x] **P5.13 — State Guard**: "No Answer" results now automatically move leads to standard call queue instead of closing.
 
 ---
 
-## ⚪ PHASE 5 — FUTURE
+## 🟠 PHASE 6 — NEXT SPRINT
+
+- [ ] **P6.1 — Named flow save/open in Logic Builder**
+- [ ] **P6.2 — Editable button payload map**
+- [ ] **P6.3 — Campaign reply awareness (Webinar Logic)**
+- [ ] **P6.4 — Storysells proper template**
+- [ ] **P6.5 — Lead Stage Conversion Tracking**
+  - Track progression from `wa_pending` -> `wa_hot` -> `discovery_call` -> `closed_won`.
+
+---
+
+## ⚪ PHASE 7 — FUTURE
 
 - [ ] **P3.1 — Multiple independent flows**
   - Support more than one active flow evaluated in parallel (e.g., BBA Pune flow, Storysells flow).
@@ -476,6 +490,9 @@
 | 18 | 27 Mar | `sender_number` NOT NULL constraint failing inbound message inserts | Code Agent | ✅ Resolved | `sender_number` not set on inbound inserts → `23502` error. Set to `cleanPhone` for inbound messages. |
 | 19 | 27 Mar | Zoho `WA_Last_Inbound_At` rejected — invalid datetime format | Code Agent | ✅ Resolved | ISO string `...Z` not accepted by Zoho datetime fields. Reformatted to `+00:00` offset. |
 | 20 | 27 Mar | Analytics timestamps displayed in UTC (Vercel server time) | Code Agent | ✅ Resolved | Added `timeZone: Asia/Kolkata` to `formatTime()`. |
+| 21 | 20 Apr | Zoho Upload template loading was broken (Array vs Object) | Code Agent | ✅ Resolved | Updated API response handling to support both formats. |
+| 22 | 20 Apr | Manual Call queue was separate from WhatsApp SLA | Code Agent | ✅ Resolved | Consolidated into unified "Pending Outreach" board. |
+
 
 ---
 
@@ -510,7 +527,10 @@
 | 26 Mar | re-engagement cron | Repurposed for Rules 5 & 6 (24h/48h follow-ups); 7-day dormancy cron deprecated | Keep 7-day cron, add new cron for follow-ups |
 | 27 Mar | Analytics page tab architecture | URL-param-based (`?tab=`) server component tabs — shareable, no client state | Client-side useState (incompatible with Next.js 16 server components) |
 | 27 Mar | Messages table backfill | Twilio message list API + `scripts/backfill-messages.ts` (idempotent) | Manual DB inserts; skip historical data |
-| 27 Mar | Twilio URL reconstruction for signature validation | Rebuild from `x-forwarded-proto` + `x-forwarded-host` in serverless | Trust `req.url` (wrong in Vercel — internal hostname) |
+| 20 Apr | Unified Outreach Strategy | Consolidated WhatsApp + Manual into a single "Log Call" process | Separate Resolve vs Call buttons |
+| 20 Apr | Callback Visibility | Added 4th box for "Scheduled Callbacks" (future follow-ups) | Vanishing "sleep mode" leads |
+| 20 Apr | Manual SLA Injection | Admin "Queue Call" button in the Message Log | System-only classification triggers |
+
 
 ---
 

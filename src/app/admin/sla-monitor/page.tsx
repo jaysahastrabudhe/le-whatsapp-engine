@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase';
-import { SlaResolveButton } from '@/components/SlaResolveButton';
 import ManualReplyForm from '@/components/ManualReplyForm';
 import CallLogWrapper from '@/components/CallLogWrapper';
 
@@ -48,6 +47,17 @@ const CLASS_LABELS: Record<string, string> = {
 
 export default async function SLAMonitorPage() {
   const now = new Date().getTime();
+
+  // 0. MQL Outreach — leads in MQL stage that aren't disqualified/contacted
+  const MQL_EXCLUDE_STATUSES = ['Contacted', 'Junk Lead', 'Lost Lead', 'Not Qualified'];
+  const { data: mqlLeads } = await supabase
+    .from('leads')
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, updated_at')
+    .eq('lead_stage', 'MQL')
+    .not('lead_status', 'in', `(${MQL_EXCLUDE_STATUSES.map(s => `"${s}"`).join(',')})`)
+    .order('updated_at', { ascending: false });
+
+  const mqlOutreachLeads = mqlLeads || [];
 
   // 1. Fetch Call Queue & Discovery Queue (Unified Call Tracking)
   const { data: callTracking } = await supabase
@@ -110,7 +120,8 @@ export default async function SLAMonitorPage() {
   }));
 
   // Sort ascending by time (most urgent / oldest first)
-  const combinedLeads = [...callQueueLeadsMapped, ...activeLeadsMapped].sort((a, b) => a.sortTime - b.sortTime);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const combinedLeads: any[] = [...callQueueLeadsMapped, ...activeLeadsMapped].sort((a, b) => a.sortTime - b.sortTime);
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8">
@@ -181,7 +192,73 @@ export default async function SLAMonitorPage() {
         </section>
       )}
 
-      {/* 2. COMBINED QUEUE (CALL QUEUE + WHATSAPP REPLIES) */}
+      {/* 2. MQL OUTREACH */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-2 h-2 rounded-full bg-amber-500" />
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+            MQL Outreach{' '}
+            <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{mqlOutreachLeads.length}</span>
+          </h2>
+          <span className="text-xs text-gray-400 ml-1">Lead Stage = MQL · not yet contacted or disqualified</span>
+        </div>
+        <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="bg-amber-50/40 border-b text-xs text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3">Lead</th>
+                <th className="px-4 py-3">Lead Status</th>
+                <th className="px-4 py-3">Hotness</th>
+                <th className="px-4 py-3">Last Updated</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mqlOutreachLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-10 text-center text-gray-400">
+                    No MQL leads pending outreach.
+                  </td>
+                </tr>
+              ) : mqlOutreachLeads.map((lead) => (
+                <tr key={lead.id} className="border-b hover:bg-amber-50/20">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900 flex items-center gap-2">
+                      {lead.name || '—'}
+                      {lead.wa_hotness && (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${HOTNESS_STYLES[lead.wa_hotness] || 'bg-gray-100 text-gray-600'}`}>
+                          {lead.wa_hotness}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-400 font-mono">{lead.phone_normalised}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                      {lead.lead_status || 'Not Contacted'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {lead.wa_hotness ? (
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${HOTNESS_STYLES[lead.wa_hotness] || 'bg-gray-100 text-gray-600'}`}>
+                        {lead.wa_hotness}
+                      </span>
+                    ) : <span className="text-gray-300 text-xs">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500">{formatIST(lead.updated_at)}</td>
+                  <td className="px-4 py-3 text-right flex justify-end">
+                    <CallLogWrapper lead={lead} queueType="mql_outreach" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr className="border-gray-200" />
+
+      {/* 3. COMBINED QUEUE (CALL QUEUE + WHATSAPP REPLIES) */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -390,27 +467,99 @@ export default async function SLAMonitorPage() {
 
       {/* WORKFLOW GUIDE */}
       <section className="bg-blue-50 border border-blue-100 rounded-lg p-6">
-        <h3 className="text-lg font-bold text-blue-900 mb-4">🚀 Daily Operations Workflow</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-          <div>
-            <div className="space-y-4 text-sm text-blue-800">
-              <p><strong>Step 1: Check Escalated</strong><br/>Handle the breached 🔴 Escalated leads first to clear Zoho task penalties.</p>
-              
-              <p><strong>Step 2: Dial Pending Outreach</strong><br/>Call the people in the blue/green queue. Logging a call with "Set up discovery call" moves them to Step 3. <em>(Logging a call exactly this way also stops the WhatsApp SLA timer automatically!).</em></p>
-              
-              <p><strong>Step 3: Conduct Discoveries</strong><br/>Call the high-value leads waiting in the Discovery Queue. When they are sold, hit Update &rarr; "Ready to Fill Form" to clear them off the board!</p>
-              
-              <p className="bg-white/60 p-3 rounded text-xs italic">
-                Tip: If a lead needs time, select "Follow up later". They will vanish out of your way and pop back onto the board automatically on the date you choose.
-              </p>
-            </div>
-          </div>
-          
-          <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100 overflow-x-auto text-xs font-mono">
-            {'Pending Outreach --> [Log Call] --> Discovery Queue --> [Update] --> Resolved'}
-          </div>
+        <h3 className="text-lg font-bold text-blue-900 mb-1">Daily Operations Workflow</h3>
+        <p className="text-xs text-blue-600 mb-5">Follow this sequence each session to keep leads moving and SLAs clear.</p>
+
+        <div className="overflow-x-auto rounded-lg border border-blue-100 shadow-sm">
+          <table className="w-full text-sm text-left bg-white">
+            <thead>
+              <tr className="bg-blue-100/60 border-b border-blue-100 text-xs text-blue-800 uppercase tracking-wider">
+                <th className="px-4 py-3 w-8">#</th>
+                <th className="px-4 py-3">Task</th>
+                <th className="px-4 py-3 whitespace-nowrap">When</th>
+                <th className="px-4 py-3 whitespace-nowrap">Who</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                {
+                  step: 1,
+                  task: <>Check <a href="/admin/analytics?tab=messages" className="underline text-blue-700 hover:text-blue-900">Message Log</a> — review inbound replies, send responses within the 24h window, and Queue Call for leads worth phoning.</>,
+                  when: 'Morning',
+                  who: 'Jonathan',
+                  highlight: false,
+                },
+                {
+                  step: 2,
+                  task: <>Export <a href="/api/admin/export-failed" className="underline text-blue-700 hover:text-blue-900">Failed Messages CSV</a> → send manually via WhatsApp Desktop for numbers the engine could not reach.</>,
+                  when: 'Morning',
+                  who: 'Jonathan',
+                  highlight: false,
+                },
+                {
+                  step: 3,
+                  task: <>Import replies from manual WhatsApp messages via <a href="/admin/import-replies" className="underline text-blue-700 hover:text-blue-900">Import / Export CSV</a>. This keeps lead status and hotness up to date.</>,
+                  when: 'Routinely',
+                  who: 'Jonathan',
+                  highlight: false,
+                },
+                {
+                  step: 4,
+                  task: 'Handle Escalated leads at the top of this page — Zoho tasks have been raised for these. Clear them first.',
+                  when: 'Morning',
+                  who: 'Jonathan',
+                  highlight: true,
+                },
+                {
+                  step: 5,
+                  task: 'Work through the Pending Outreach queue — log each call. Selecting "Set up discovery call" promotes the lead and clears the SLA timer.',
+                  when: 'Routinely',
+                  who: 'Jonathan',
+                  highlight: false,
+                },
+                {
+                  step: 6,
+                  task: 'Conduct Discovery Calls from the Discovery Queue. Once sold, log the call and mark as "Ready to Fill Form" to clear from the board.',
+                  when: 'Routinely',
+                  who: 'Gargi',
+                  highlight: false,
+                },
+                {
+                  step: 7,
+                  task: 'Review Scheduled Callbacks — check who is due today and confirm or reschedule.',
+                  when: 'End of day',
+                  who: 'Jonathan',
+                  highlight: false,
+                },
+                {
+                  step: 8,
+                  task: <>Review <a href="/admin/analytics?tab=performance" className="underline text-blue-700 hover:text-blue-900">Template Performance</a> — check delivery %, reply %, and top errors. Pause or replace under-performing templates. Also review Campaign results.</>,
+                  when: 'Weekly',
+                  who: '—',
+                  highlight: false,
+                },
+              ].map(({ step, task, when, who, highlight }) => (
+                <tr key={step} className={`border-b border-blue-50 ${highlight ? 'bg-red-50/40' : 'hover:bg-blue-50/30'}`}>
+                  <td className="px-4 py-3 font-bold text-blue-400 text-base">{step}</td>
+                  <td className="px-4 py-3 text-gray-800 leading-relaxed">{task}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                      when === 'Morning'    ? 'bg-yellow-100 text-yellow-800' :
+                      when === 'End of day' ? 'bg-indigo-100 text-indigo-700' :
+                      when === 'Weekly'     ? 'bg-purple-100 text-purple-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>{when}</span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-700 font-medium whitespace-nowrap">{who}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+
+        <p className="text-xs text-blue-500 mt-4 italic">
+          Tip: If a lead needs more time, select &ldquo;Follow up later&rdquo; when logging a call — they vanish from the queue and reappear automatically on the date you choose.
+        </p>
       </section>
     </div>
   );

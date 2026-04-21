@@ -14,6 +14,8 @@ export interface ZohoUpdatePayload {
   WA_Opt_In?: boolean;
   WA_State?: string;
   WA_Track?: string;
+  Lead_Stage?: string;
+  Lead_Status?: string;
 }
 
 /**
