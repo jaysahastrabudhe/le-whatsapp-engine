@@ -54,7 +54,7 @@ export default async function DailyInboundPage({
 
   const { data: msgs } = await supabase
     .from('messages')
-    .select('id, content, sent_at, wa_reply_class, phone_normalised, lead_id, leads!lead_id(name, phone_normalised, wa_hotness, lead_stage, wa_state)')
+    .select('id, content, sent_at, phone_normalised, lead_id, leads!lead_id(name, wa_reply_class, wa_hotness, lead_stage, wa_state)')
     .eq('direction', 'inbound')
     .gte('sent_at', start)
     .lte('sent_at', end)
@@ -66,7 +66,7 @@ export default async function DailyInboundPage({
   const total = rows.length;
   const classCounts: Record<string, number> = {};
   for (const r of rows) {
-    const cls = r.wa_reply_class || 'unclassified';
+    const cls = r.leads?.wa_reply_class || 'unclassified';
     classCounts[cls] = (classCounts[cls] || 0) + 1;
   }
 
@@ -194,9 +194,9 @@ export default async function DailyInboundPage({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {row.wa_reply_class ? (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${CLASS_STYLES[row.wa_reply_class] || 'bg-gray-100 text-gray-600'}`}>
-                          {CLASS_LABELS[row.wa_reply_class] || row.wa_reply_class}
+                      {lead?.wa_reply_class ? (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${CLASS_STYLES[lead.wa_reply_class] || 'bg-gray-100 text-gray-600'}`}>
+                          {CLASS_LABELS[lead.wa_reply_class] || lead.wa_reply_class}
                         </span>
                       ) : (
                         <span className="text-gray-300 italic text-xs">unclassified</span>
