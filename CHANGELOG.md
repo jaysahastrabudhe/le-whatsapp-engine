@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.4.0] - 2026-04-21 (Pipeline Visual Refinements)
+
+### Fixed
+- **WA Replied pipeline count** — was using `activeLeads` (SLA timer leads) which is near-zero once any call is logged. Changed to `wa_state = 'replied'` for accuracy.
+- **WA Replied launch date filter** — old backlog of 79 pre-existing replied leads excluded. Counter starts from 2026-04-21 (call log system launch date) and accumulates unactioned replies going forward.
+- **Resolved Today count removed** — was incorrectly using `updated_at` as a proxy for resolution date, causing inflated counts (leads in `wa_sla_resolved` touched by any update today were counted). Replaced with the Today card.
+- **Today card** — replaces the Resolved box. Shows Calls Went Through / Not Gone Through / Call Back Later, all counted from `call_logs` since 6:00 AM IST. Accurate daily activity metric.
+- **Scheduled card removed** from pipeline — not a meaningful pipeline stage for daily call operations.
+- **Source cards widened** and pipeline **centre-aligned**.
+
+---
+
 ## [5.3.0] - 2026-04-21 (SLA Pipeline Visual + MQL Sync Trigger + UX Fixes)
 
 ### Added
