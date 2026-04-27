@@ -18,9 +18,10 @@ async function handleReconcile(request: Request) {
 
   const { data: leads, error } = await supabase
     .from('leads')
-    .select('id, zoho_lead_id, wa_state, wa_last_outbound_at, wa_last_template, wa_reply_class, wa_hotness, wa_last_inbound_at, wa_opt_in, wa_track')
+    .select('id, zoho_lead_id, wa_state, wa_last_outbound_at, wa_last_template, wa_reply_class, wa_hotness, wa_last_inbound_at, wa_opt_in, wa_track, lead_stage, lead_status')
     .is('zoho_synced_at', null)
     .not('zoho_lead_id', 'is', null)
+    .neq('zoho_module', 'contacts')
     .limit(50);
 
   if (error) {
@@ -48,6 +49,8 @@ async function handleReconcile(request: Request) {
       if (lead.wa_last_inbound_at) payload.WA_Last_Inbound_At = formatDate(lead.wa_last_inbound_at);
       if (lead.wa_opt_in != null)  payload.WA_Opt_In          = lead.wa_opt_in;
       if (lead.wa_track)           payload.WA_Track           = lead.wa_track;
+      if (lead.lead_stage)         payload.Lead_Stage         = lead.lead_stage;
+      if (lead.lead_status)        payload.Lead_Status        = lead.lead_status;
 
       await updateZohoLead(lead.zoho_lead_id, payload);
 

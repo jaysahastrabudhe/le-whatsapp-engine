@@ -5,6 +5,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.6.0] - 2026-04-27 (Call Log Overhaul + Zoho Stage Sync)
+
+### Added
+- **Stage-change webhook** (`/api/webhooks/zoho/stage-change`) — receives `id`/`Lead_Stage`/`Lead_Status` from a Zoho workflow rule on edit, updates Supabase within ~1 second. Closes the long-standing drift where leads moved out of MQL in Zoho stayed marked MQL locally. Requires a Zoho workflow rule on Leads module triggering on `Lead_Stage` or `Lead_Status` modified.
+- **`Lead_Stage` and `Lead_Status` to reconcile cron payload** — failed immediate writebacks (call log → Zoho) are now retried by the hourly reconcile cron. Previously the daily MQL sync would overwrite Supabase back from Zoho if the immediate write failed.
+- **No-answer attempt tracking** — Call Log modal counts consecutive `no_answer` call_logs since last `answered`/`call_back_later`. Shows attempt badge in modal header (×1, ×2, ⚠️ 3×) and pre-selects "Remove from SLA" at 3+ attempts. Soft threshold — team can override.
+- **No-answer retry options** — when "No Answer" is selected, three explicit options replace the disabled placeholder: "Retry soon" (stays in queue), "Schedule retry" (date picker, hides until that date), "Remove from SLA" (closes lead).
+- **AssignDropdown component** — inline assignment dropdown across SLA page sections. Discovery defaults to Gargi, Escalated defaults to Jonathan. Saves on change via `/api/admin/assign-lead`.
+- **`/api/admin/assign-lead`** — PATCH endpoint to update `call_assigned_to` for a single lead.
+- **Manual Entry pipeline counter** — uses `lead_events.event_type = 'csv_import'` to count leads that came in via the Import Replies CSV path, excluding `wa_closed`/`opted_out` states. Pipeline card now shows a real count instead of `—`.
+
+### Changed
+- **Call log state transitions restructured** — `nextAction` now always drives the state change. `nextAction === 'followup_on_date'` correctly sets `wa_state = 'call_follow_up'` (was incorrectly `call_queued`, causing scheduled leads to stay permanently visible in the queue instead of hiding until their date).
+- **SLA page columns unified** across all five sections (Escalated, MQL Outreach, Pending Outreach, Discovery, Scheduled Callbacks): Lead + attempt badge + reply class | Lead Status | Hotness | Assigned To | Context | Action.
+- **MQL Outreach sort stable** — changed from `updated_at` desc to `created_at` asc. Logging a call no longer reshuffles the list mid-session.
+- **MQL box `lead_status` filter fixed** — query now includes rows where `lead_status IS NULL`. PostgreSQL evaluates `NULL NOT IN (list)` as `NULL` (unknown), which silently drops those rows. Box jumped from 26 visible to 92.
+- **Campaign metrics computed live from `campaign_leads`** — removed the `generateCampaignReport` call at commit time which generated zero reports before any sends. Campaigns list page no longer reads `camp.report` (was preferring stale zeros over live counts).
+- **statusProcessor propagates campaign_leads status** — when a Twilio status callback arrives (delivered/read/failed), the worker now updates `campaign_leads.status` to match. Previously `campaign_leads` was stuck on `sent` for the entire campaign lifecycle.
+
+### Fixed
+- **425 stale MQL records cleaned up** — one-time backfill compared all Supabase MQL leads against current Zoho state, downgraded 423 leads (where Zoho `Lead_Stage` was null/non-MQL) to match Zoho, kept 11 unverifiable (not found in Zoho) as-is. Supabase MQL count went from 536 → 113. Stage-change webhook prevents this drift from recurring.
+
+### Documentation
+- **`docs/team-workflow.md`** — added comprehensive SLA page logic reference: `wa_state` table, pipeline entry points, section visibility rules, call log state-transition table, no-answer attempt tracking, Zoho writeback gating, and **Zoho ↔ Supabase Sync Architecture** with the four sync paths and required Zoho config for the stage-change webhook.
+
+---
+
+## [5.5.0] - 2026-04-21 (Campaign Contacts Staging)
+
+### Added
+- **`campaign_contacts` staging table** — holds Zoho Contacts (or any record not yet in `leads`) for campaign sends. Columns: `zoho_id`, `zoho_module`, `name`, `phone_normalised`, `status` (`staging` → `promoted`), `promoted_lead_id`.
+- **`zoho_module` column on `leads`** — `TEXT DEFAULT 'leads'`. Set to `'contacts'` when a staged contact is promoted. Controls whether Zoho writeback runs.
+- **`contact_id` column on `campaign_leads`** — nullable FK to `campaign_contacts`. Either `lead_id` or `contact_id` is set per row.
+- **Zoho Module dropdown in upload wizard** — Step 1 of the Zoho upload UI now has a "Zoho Module" selector (Leads / Contacts). Applies to the whole batch. Hint text explains the staging behaviour for Contacts.
+- **Staged contact auto-promotion** — when a staged contact sends their first WhatsApp reply, the inbound processor inserts them into `leads` (with `zoho_module = 'contacts'`) and marks the `campaign_contacts` record as `promoted`. They then enter SLA flow normally.
+
+### Changed
+- **Preview route** — unmatched rows with a valid phone are now returned as `status: 'staged'` (not `skipped`). Summary includes `staged`, `sendable`, and `skipped` counts.
+- **Commit route** — upserts staged contacts into `campaign_contacts` (dedup on `zoho_id + zoho_module`) before creating `campaign_leads`. Enqueues staged sends with `contactId` field instead of `leadId`.
+- **`process-queue` cron** — campaign delivery status (`sent`) now written to `campaign_leads` by `contact_id` when `leadId` is absent.
+- **Call log route** — fetches `zoho_module` for the lead before Zoho writeback. Skips note creation and field update for `contacts`-module leads to avoid API errors.
+- **Zoho reconcile cron** — added `.neq('zoho_module', 'contacts')` filter. Contacts-module leads are silently excluded from hourly WA field sync.
+
+---
+
 ## [5.4.0] - 2026-04-21 (Pipeline Visual Refinements)
 
 ### Fixed

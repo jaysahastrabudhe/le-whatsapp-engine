@@ -30,29 +30,31 @@ export async function POST(request: Request) {
     if (logError) throw logError;
 
     // 2. Update Lead State in Supabase
+    // nextAction always drives the state transition; contactStatus is only for the call_log record.
     const updateFields: Record<string, any> = {
       call_assigned_to: caller,
       updated_at: new Date().toISOString(),
       wa_human_response_due_at: null, // Any call counts as human response — clear WA SLA timer
     };
 
-    if (contactStatus === 'no_answer') {
-      if (currentQueue === 'whatsapp_reply') {
-        updateFields.wa_state = 'call_queued';
-      }
-      // mql_outreach + no_answer: stays visible (lead_stage stays MQL, handled below)
-    } else if (nextAction === 'followup_on_date') {
-      updateFields.wa_state = currentQueue === 'discovery_call' ? 'discovery_call' : 'call_queued';
-      updateFields.followup_call_at = nextActionDate;
+    if (nextAction === 'close_lead') {
+      updateFields.wa_state = 'wa_closed';
+      updateFields.followup_call_at = null;
     } else if (nextAction === 'discovery_call') {
       updateFields.wa_state = 'discovery_call';
       updateFields.followup_call_at = null;
     } else if (nextAction === 'ready_to_fill') {
       updateFields.wa_state = 'wa_sla_resolved';
       updateFields.followup_call_at = null;
-    } else if (nextAction === 'close_lead') {
-      updateFields.wa_state = 'wa_closed';
-      updateFields.followup_call_at = null;
+    } else if (nextAction === 'followup_on_date') {
+      // Schedule a specific retry date — lead hides until that date
+      updateFields.wa_state = currentQueue === 'discovery_call' ? 'discovery_call' : 'call_follow_up';
+      updateFields.followup_call_at = nextActionDate;
+    } else {
+      // no_answer (stay in queue) — whatsapp_reply leads must be promoted to call_queued
+      if (currentQueue === 'whatsapp_reply') {
+        updateFields.wa_state = 'call_queued';
+      }
     }
 
     // Write CRM stage fields if provided
@@ -73,7 +75,11 @@ export async function POST(request: Request) {
     let zohoNoteOk = true;
     let zohoFieldsOk = true;
 
-    if (zohoLeadId) {
+    // Skip Zoho writeback for Contacts module leads — they don't exist in Zoho Leads
+    const { data: leadRow } = await supabase.from('leads').select('zoho_module').eq('id', leadId).single();
+    const isContactsModule = leadRow?.zoho_module === 'contacts';
+
+    if (zohoLeadId && !isContactsModule) {
       // 3a. Field writeback — Lead_Stage, Lead_Status (awaited)
       if (leadStage || leadStatus) {
         try {

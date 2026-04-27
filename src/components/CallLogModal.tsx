@@ -27,15 +27,19 @@ function getZohoDefaults(queue: QueueType, action: string): { stage: string; sta
 }
 
 export default function CallLogModal({
-  leadId, zohoLeadId, leadName, queueType, onClose, onSuccess,
+  leadId, zohoLeadId, leadName, queueType, noAnswerCount = 0, onClose, onSuccess,
 }: {
   leadId: string;
   zohoLeadId: string | null;
   leadName: string;
   queueType: QueueType;
+  noAnswerCount?: number;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const MAX_ATTEMPTS = 3;
+  const overAttemptLimit = noAnswerCount >= MAX_ATTEMPTS;
+
   const [loading, setLoading] = useState(false);
   const [caller, setCaller] = useState(TEAM_MEMBERS[0]);
   const [contactStatus, setContactStatus] = useState('answered');
@@ -49,22 +53,26 @@ export default function CallLogModal({
 
   // Auto-populate Zoho fields when next action or contact status changes
   useEffect(() => {
-    const effectiveAction = contactStatus === 'no_answer' ? 'no_answer' : nextAction;
+    const effectiveAction = nextAction === 'no_answer' ? 'no_answer' : nextAction;
     const defaults = getZohoDefaults(queueType, effectiveAction);
     setLeadStage(defaults.stage);
     setLeadStatus(defaults.status);
-  }, [nextAction, contactStatus, queueType]);
+  }, [nextAction, queueType]);
 
   const handleContactStatusChange = (val: string) => {
     setContactStatus(val);
-    if (val === 'no_answer')       setNextAction('no_answer');
+    if (val === 'no_answer') {
+      // At limit: pre-select close; otherwise default to stay in queue
+      setNextAction(overAttemptLimit ? 'close_lead' : 'no_answer');
+    }
     if (val === 'call_back_later') setNextAction('followup_on_date');
+    if (val === 'answered') setNextAction(queueType === 'discovery_call' ? 'ready_to_fill' : 'discovery_call');
   };
 
   const handleSubmit = async (e: { preventDefault(): void }) => {
     e.preventDefault();
     if (nextAction === 'followup_on_date' && !nextActionDate) {
-      alert('Please select a follow-up date and time.');
+      alert('Please select a follow-up date and time for the scheduled retry.');
       return;
     }
 
@@ -107,7 +115,18 @@ export default function CallLogModal({
 
         <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50 sticky top-0">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Log Call: {leadName}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-gray-900">Log Call: {leadName}</h2>
+              {noAnswerCount > 0 && (
+                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                  overAttemptLimit
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {overAttemptLimit ? `⚠️ ${noAnswerCount} unanswered` : `Attempt ${noAnswerCount + 1}`}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-gray-500 font-medium">
               Zoho note + stage update written immediately on save.
             </p>
@@ -211,14 +230,29 @@ export default function CallLogModal({
                 </label>
               )}
 
-              {/* No answer placeholder */}
+              {/* No answer options */}
               {contactStatus === 'no_answer' && (
-                <div className="flex items-center gap-3 p-2 rounded opacity-50">
-                  <input type="radio" readOnly checked className="w-4 h-4" />
-                  <span className="text-sm font-medium text-gray-800">
-                    {isMql ? 'Lead stays in MQL Outreach queue' : 'Lead stays in Call Queue'}
-                  </span>
-                </div>
+                <>
+                  <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
+                    <input type="radio" name="action" value="no_answer" checked={nextAction === 'no_answer'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-medium text-gray-800">Retry soon
+                      <span className="ml-1.5 text-xs text-gray-500 font-normal">(stays in call queue)</span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
+                    <input type="radio" name="action" value="followup_on_date" checked={nextAction === 'followup_on_date'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-medium text-gray-800">Schedule retry
+                      <span className="ml-1.5 text-xs text-blue-600 font-normal">(hides until chosen date)</span>
+                    </span>
+                  </label>
+                  <label className={`flex items-center gap-3 p-2 rounded cursor-pointer ${overAttemptLimit ? 'bg-red-50 border border-red-200' : 'hover:bg-red-50'}`}>
+                    <input type="radio" name="action" value="close_lead" checked={nextAction === 'close_lead'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-red-500" />
+                    <span className="text-sm font-medium text-gray-700">Remove from SLA
+                      <span className="ml-1.5 text-xs text-red-500 font-normal">(closes lead · Zoho: Lead / Not Qualified)</span>
+                      {overAttemptLimit && <span className="ml-1.5 text-xs font-bold text-red-600">← recommended after {noAnswerCount} attempts</span>}
+                    </span>
+                  </label>
+                </>
               )}
             </div>
 

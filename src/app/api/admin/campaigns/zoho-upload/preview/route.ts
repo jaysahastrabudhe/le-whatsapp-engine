@@ -28,6 +28,7 @@ export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    const zohoModule = (formData.get('zoho_module') as string) || 'leads';
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
@@ -92,6 +93,7 @@ export async function POST(request: Request) {
 
     const matchResults = [];
     let matched = 0;
+    let staged = 0;
     let skipped = 0;
 
     for (const row of parsedData) {
@@ -131,8 +133,13 @@ export async function POST(request: Request) {
         status: 'skipped'
       };
 
-      if (!dbLead) {
-        resultRow.skip_reason = 'not_in_system';
+      if (!dbLead && cleanPhone) {
+        // Stage the contact — will be inserted into campaign_contacts at commit time
+        resultRow.status = 'staged';
+        resultRow.zoho_module = zohoModule;
+        staged++;
+      } else if (!dbLead) {
+        resultRow.skip_reason = 'not_in_system_no_phone';
         skipped++;
       } else if (!cleanPhone) {
         resultRow.skip_reason = 'no_phone';
@@ -159,10 +166,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       rows: matchResults,
+      zohoModule,
       summary: {
         matched,
+        staged,
         skipped,
-        total: matchResults.length
+        total: matchResults.length,
+        sendable: matched + staged,
       }
     });
 

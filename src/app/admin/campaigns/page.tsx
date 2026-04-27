@@ -38,25 +38,17 @@ export default async function CampaignsPage() {
 
       <div className="space-y-4">
         {campaigns?.map((camp) => {
-          let total = 0, sent = 0, delivered = 0, replied = 0, failed = 0;
-          let replyRate: string | null = null;
-          
-          if (camp.report && camp.report.delivery) {
-            total = camp.report.audience.enqueued;
-            sent = camp.report.delivery.sent;
-            delivered = camp.report.delivery.delivered;
-            replied = camp.report.replies.total;
-            failed = camp.report.delivery.failed;
-            replyRate = camp.report.replies.reply_rate_pct.toString();
-          } else {
-            const leads = camp.campaign_leads || [];
-            total = leads.length;
-            sent = leads.filter((l: any) => l.status === 'sent').length;
-            delivered = leads.filter((l: any) => l.status === 'delivered').length;
-            replied = leads.filter((l: any) => l.status === 'replied').length;
-            failed = leads.filter((l: any) => l.status === 'failed').length;
-            replyRate = total > 0 ? ((replied / total) * 100).toFixed(1) : null;
-          }
+          // Always use live campaign_leads counts — the stored report is only generated
+          // at commit time (before any sends) and would show stale zeros.
+          const leads = camp.campaign_leads || [];
+          const total = leads.length;
+          const sent = leads.filter((l: any) => l.status !== 'pending').length;
+          const delivered = leads.filter((l: any) => l.status === 'delivered' || l.status === 'read').length;
+          const replied = leads.filter((l: any) => l.status === 'replied').length;
+          const failed = leads.filter((l: any) => l.status === 'failed').length;
+          const replyRate: string | null = delivered > 0
+            ? ((replied / delivered) * 100).toFixed(1)
+            : (total > 0 ? null : null);
 
           return (
             <div key={camp.id} className="bg-white border rounded-lg shadow-sm p-6 space-y-4">

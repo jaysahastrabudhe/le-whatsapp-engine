@@ -4,7 +4,15 @@ import CallLogModal from './CallLogModal';
 import { PhoneCall } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-export default function CallLogWrapper({ lead, queueType }: { lead: any, queueType: 'call_queue' | 'discovery_call' | 'whatsapp_reply' | 'mql_outreach' }) {
+export default function CallLogWrapper({
+  lead,
+  queueType,
+  noAnswerCount = 0,
+}: {
+  lead: any;
+  queueType: 'call_queue' | 'discovery_call' | 'whatsapp_reply' | 'mql_outreach';
+  noAnswerCount?: number;
+}) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
 
@@ -30,6 +38,7 @@ export default function CallLogWrapper({ lead, queueType }: { lead: any, queueTy
           zohoLeadId={lead.zoho_lead_id}
           leadName={lead.name || lead.phone_normalised}
           queueType={queueType}
+          noAnswerCount={noAnswerCount}
           onClose={() => setOpen(false)}
           onSuccess={() => {
             setOpen(false);

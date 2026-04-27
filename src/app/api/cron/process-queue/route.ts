@@ -97,14 +97,20 @@ export async function GET(request: Request) {
           if (msg) {
             results.push(`campaign:${data.to}:${msg.sid}`);
             console.log(`[Cron] Campaign sent ${data.contentSid} to ${data.to} — SID: ${msg.sid}`);
-            if (data.campaignId && data.leadId) {
-              await supabase
+            if (data.campaignId) {
+              // Update campaign_leads by lead_id (matched) or contact_id (staged)
+              const clUpdate = supabase
                 .from('campaign_leads')
                 .update({ status: 'sent', sent_at: new Date().toISOString() })
-                .eq('campaign_id', data.campaignId)
-                .eq('lead_id', data.leadId);
+                .eq('campaign_id', data.campaignId);
 
-              // Mark campaign completed when no pending leads remain
+              if (data.leadId) {
+                await clUpdate.eq('lead_id', data.leadId);
+              } else if (data.contactId) {
+                await clUpdate.eq('contact_id', data.contactId);
+              }
+
+              // Mark campaign completed when no pending rows remain
               const { count: pendingCount } = await supabase
                 .from('campaign_leads')
                 .select('*', { count: 'exact', head: true })

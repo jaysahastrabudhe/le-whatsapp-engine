@@ -20,16 +20,27 @@ export async function processStatusUpdate(job: Job) {
     })
     .eq('twilio_sid', MessageSid);
 
-  // 2. Fetch associated message to get the lead's phone number
+  // 2. Fetch associated message to get the lead's phone number and lead_id
   const { data: msg, error: msgError } = await supabase
     .from('messages')
-    .select('phone_normalised')
+    .select('phone_normalised, lead_id')
     .eq('twilio_sid', MessageSid)
     .single();
 
   if (msgError || !msg) {
     console.warn(`[StatusProcessor] Could not find message ${MessageSid} to sync lead status.`);
     return { success: true, status: MessageStatus, leadSynced: false };
+  }
+
+  // 2b. Propagate delivery status into campaign_leads (delivered, read, failed)
+  // Only advance the status — never go backwards (read → delivered is not valid)
+  if (msg.lead_id && ['delivered', 'read', 'failed'].includes(normalisedStatus)) {
+    const validPrior = normalisedStatus === 'read' ? ['sent', 'delivered'] : ['sent'];
+    await supabase
+      .from('campaign_leads')
+      .update({ status: normalisedStatus })
+      .eq('lead_id', msg.lead_id)
+      .in('status', validPrior);
   }
 
   const updateObj: Record<string, string | boolean | null> = { wa_last_status: normalisedStatus };

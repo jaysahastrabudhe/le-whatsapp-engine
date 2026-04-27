@@ -83,11 +83,45 @@ export async function processInboundMessage(job: { data: Record<string, string> 
   const waOptIn = replyClass !== 'stop';
 
   // ── Fetch current lead ────────────────────────────────────────────────────
-  const { data: currentLead } = await supabase
+  let { data: currentLead } = await supabase
     .from('leads')
     .select('id, zoho_lead_id, owner_email, lead_track, name')
     .eq('phone_normalised', cleanPhone)
     .single();
+
+  // ── Promote staged contact if not yet in leads ────────────────────────────
+  if (!currentLead) {
+    const { data: staged } = await supabase
+      .from('campaign_contacts')
+      .select('id, zoho_id, zoho_module, name')
+      .eq('phone_normalised', cleanPhone)
+      .eq('status', 'staging')
+      .single();
+
+    if (staged) {
+      const { data: newLead } = await supabase
+        .from('leads')
+        .insert({
+          phone_normalised: cleanPhone,
+          name:             staged.name,
+          zoho_module:      staged.zoho_module,
+          wa_opt_in:        true,
+          wa_state:         'wa_pending',
+        })
+        .select('id, zoho_lead_id, owner_email, lead_track, name')
+        .single();
+
+      if (newLead) {
+        await supabase
+          .from('campaign_contacts')
+          .update({ status: 'promoted', promoted_lead_id: newLead.id, updated_at: now })
+          .eq('id', staged.id);
+
+        currentLead = newLead;
+        console.log(`[InboundProcessor] Promoted staged contact ${cleanPhone} → lead ${newLead.id}`);
+      }
+    }
+  }
 
   // ── Owner Assignment ───────────────────────────────────────────────────────
   let assignedOwner = null;

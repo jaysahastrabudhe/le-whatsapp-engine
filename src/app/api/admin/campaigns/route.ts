@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 import { createAndLaunchCampaign, CampaignSegmentFilters } from '@/lib/campaigns/manager';
-import { generateCampaignReport } from '@/lib/campaigns/reports';
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -12,11 +10,6 @@ export async function POST(request: Request) {
     }
 
     const result = await createAndLaunchCampaign(name, templateSid, templateName, segment || {});
-    
-    // Generate initial report skeleton
-    if (result.campaignId) {
-      await generateCampaignReport(result.campaignId);
-    }
 
     return NextResponse.json(result);
   } catch (error: any) {
