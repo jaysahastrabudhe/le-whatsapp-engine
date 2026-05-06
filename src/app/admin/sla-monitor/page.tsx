@@ -115,11 +115,12 @@ export default async function SLAMonitorPage() {
   const mqlOutreachLeads = mqlLeads || [];
 
   // 0b. MQL History
+  // Contacted leads move to Discovery/SQL, so we only show the ones that were closed or attempted.
+  const MQL_HISTORY_STATUSES = ['Junk Lead', 'Lost Lead', 'Not Qualified', 'Attempted to Contact'];
   const { data: mqlHistory } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at')
-    .eq('lead_stage', 'MQL')
-    .in('lead_status', MQL_EXCLUDE_STATUSES)
+    .in('lead_status', MQL_HISTORY_STATUSES)
     .order('updated_at', { ascending: false })
     .limit(20);
 

@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - **MQL Outreach exclusions** — Expanded `MQL_EXCLUDE_STATUSES` to include `Attempted to Contact`. Leads now automatically drop out of the active MQL Outreach queue into the MQL History section as soon as a call is logged.
 
+### Fixed
+- **MQL History visibility** — Removed the strict `lead_stage = 'MQL'` requirement for the MQL History query. When a lead is disqualified or closed from the Call Log modal, its stage changes to `Lead`. By dropping the stage requirement and matching exclusively on historical/closed statuses (`Junk Lead`, `Lost Lead`, `Not Qualified`, `Attempted to Contact`), closed leads now correctly appear in the MQL History section instead of disappearing entirely.
+
 ---
 
 ## [5.6.0] - 2026-04-27 (Call Log Overhaul + Zoho Stage Sync)
