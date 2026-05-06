@@ -5,8 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [5.6.0] - 2026-04-27 (Call Log Overhaul + Zoho Stage Sync)
+## [5.7.0] - 2026-05-06 (MQL History Tracking)
 
+### Added
+- **MQL History Section** (`/admin/sla-monitor`) — New UI section displaying dealt MQL leads (status: 'Attempted to Contact', 'Junk Lead', 'Lost Lead', 'Not Qualified', 'Contacted'). Shows lead info, latest caller, notes, and updated timestamp.
+- **`latestCallLogMap` extraction** — Query logic added to fetch the most recent call log per lead to render the last caller and notes for historical leads without additional network requests.
+
+### Changed
+- **MQL Outreach exclusions** — Expanded `MQL_EXCLUDE_STATUSES` to include `Attempted to Contact`. Leads now automatically drop out of the active MQL Outreach queue into the MQL History section as soon as a call is logged.
+
+---
+
+## [5.6.0] - 2026-04-27 (Call Log Overhaul + Zoho Stage Sync)
 ### Added
 - **Stage-change webhook** (`/api/webhooks/zoho/stage-change`) — receives `id`/`Lead_Stage`/`Lead_Status` from a Zoho workflow rule on edit, updates Supabase within ~1 second. Closes the long-standing drift where leads moved out of MQL in Zoho stayed marked MQL locally. Requires a Zoho workflow rule on Leads module triggering on `Lead_Stage` or `Lead_Status` modified.
 - **`Lead_Stage` and `Lead_Status` to reconcile cron payload** — failed immediate writebacks (call log → Zoho) are now retried by the hourly reconcile cron. Previously the daily MQL sync would overwrite Supabase back from Zoho if the immediate write failed.

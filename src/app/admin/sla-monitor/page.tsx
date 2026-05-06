@@ -103,7 +103,7 @@ export default async function SLAMonitorPage() {
   // 0. MQL Outreach
   // Include rows where lead_status IS NULL — PostgreSQL's NOT IN evaluates NULL as
   // unknown and silently drops those rows, which would hide most untriaged MQL leads.
-  const MQL_EXCLUDE_STATUSES = ['Contacted', 'Junk Lead', 'Lost Lead', 'Not Qualified'];
+  const MQL_EXCLUDE_STATUSES = ['Contacted', 'Junk Lead', 'Lost Lead', 'Not Qualified', 'Attempted to Contact'];
   const excludeList = `(${MQL_EXCLUDE_STATUSES.map(s => `"${s}"`).join(',')})`;
   const { data: mqlLeads } = await supabase
     .from('leads')
@@ -113,6 +113,17 @@ export default async function SLAMonitorPage() {
     .order('created_at', { ascending: true });
 
   const mqlOutreachLeads = mqlLeads || [];
+
+  // 0b. MQL History
+  const { data: mqlHistory } = await supabase
+    .from('leads')
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at')
+    .eq('lead_stage', 'MQL')
+    .in('lead_status', MQL_EXCLUDE_STATUSES)
+    .order('updated_at', { ascending: false })
+    .limit(20);
+
+  const mqlHistoryLeads = mqlHistory || [];
 
   // 1. Call Tracking (call_queued, call_follow_up, discovery_call)
   const { data: callTracking } = await supabase
@@ -167,23 +178,26 @@ export default async function SLAMonitorPage() {
     ...scheduledLeads,
     ...mqlOutreachLeads,
     ...escalatedLeads,
+    ...mqlHistoryLeads,
   ].map(l => l.id).filter(Boolean);
 
   const noAnswerCountMap: Record<string, number> = {};
+  const latestCallLogMap: Record<string, any> = {};
   if (callLeadIds.length > 0) {
     const { data: callLogData } = await supabase
       .from('call_logs')
-      .select('lead_id, contact_status')
+      .select('lead_id, contact_status, notes, caller, called_at')
       .in('lead_id', callLeadIds)
       .order('called_at', { ascending: false });
 
-    const byLead: Record<string, { contact_status: string }[]> = {};
+    const byLead: Record<string, any[]> = {};
     for (const log of callLogData ?? []) {
       if (!byLead[log.lead_id]) byLead[log.lead_id] = [];
       byLead[log.lead_id].push(log);
     }
     for (const [leadId, logs] of Object.entries(byLead)) {
       noAnswerCountMap[leadId] = computeNoAnswerCount(logs);
+      latestCallLogMap[leadId] = logs[0]; // store most recent for history
     }
   }
 
@@ -421,6 +435,55 @@ export default async function SLAMonitorPage() {
           </table>
         </div>
       </section>
+
+      <hr className="border-gray-200" />
+
+      {/* 2.5 MQL HISTORY */}
+      {mqlHistoryLeads.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-2 h-2 rounded-full bg-gray-400" />
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+              MQL History{' '}
+              <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{mqlHistoryLeads.length}</span>
+            </h2>
+            <span className="text-xs text-gray-400 ml-1">Dealt MQL leads</span>
+          </div>
+          <div className="bg-gray-50 border rounded-lg overflow-hidden shadow-sm opacity-80 hover:opacity-100 transition-opacity">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="bg-gray-100 border-b text-xs text-gray-500 uppercase tracking-wider">
+                  <th className={TH}>Lead</th>
+                  <th className={TH}>Status</th>
+                  <th className={TH}>Last Caller</th>
+                  <th className={TH}>Call Notes</th>
+                  <th className={TH}>Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mqlHistoryLeads.map((lead) => {
+                  const log = latestCallLogMap[lead.id];
+                  return (
+                    <tr key={lead.id} className="border-b hover:bg-gray-100/50">
+                      <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
+                      <LeadStatusCell status={lead.lead_status} />
+                      <td className={TH + ' text-xs text-gray-600'}>
+                        {log?.caller || '-'}
+                      </td>
+                      <td className={TH + ' text-xs text-gray-600 max-w-xs truncate'} title={log?.notes || ''}>
+                        {log?.notes || '-'}
+                      </td>
+                      <td className={TH + ' text-xs text-gray-500 whitespace-nowrap'}>
+                        {formatIST(log?.called_at || lead.updated_at)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <hr className="border-gray-200" />
 
