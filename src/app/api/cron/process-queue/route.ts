@@ -93,6 +93,7 @@ export async function GET(request: Request) {
             from:             data.from as string,
             contentSid:       data.contentSid as string,
             contentVariables: data.contentVariables ? JSON.parse(data.contentVariables as string) : undefined,
+            bypassCooldown:   true, // Campaigns are explicit broadcasts — opt out of the 2-msg cooldown
           } as any);
           if (msg) {
             results.push(`campaign:${data.to}:${msg.sid}`);
