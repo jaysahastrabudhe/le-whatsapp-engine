@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.7.1] - 2026-05-13 (MQL Queue & History Fixes)
+
+### Fixed
+- **MQL Outreach filter not dismissing dealt leads** — The `.or()` + `not.in` PostgREST filter syntax was silently broken, causing leads with excluded statuses ('Attempted to Contact', 'Junk Lead', etc.) to remain in the active MQL Outreach list after being dealt with. Replaced with a client-side `.filter()` after fetching all MQL-stage leads, which correctly excludes any lead with a terminal status.
+- **MQL History section invisible** — Section was wrapped in a `{length > 0 && ...}` conditional, making it fully invisible when no history rows returned (whether due to the filter bug or genuinely empty). Section now always renders with a proper empty-state message so it's always visible on the page.
+- **MQL History missing leads** — The history query now filters client-side to only include leads that actually originated from MQL (those still on `lead_stage='MQL'` with an attempted status, or those with `wa_state='wa_closed'/'wa_sla_resolved'`), preventing non-MQL leads from polluting the history view.
+- **MQL History Stage column** — History table now shows both the current stage badge and status, making it easy to see where a lead landed after being dealt with.
+
+---
+
 ## [5.7.0] - 2026-05-06 (MQL History Tracking)
 
 ### Added

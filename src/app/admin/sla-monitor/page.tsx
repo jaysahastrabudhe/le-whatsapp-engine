@@ -101,30 +101,37 @@ export default async function SLAMonitorPage() {
   const now = new Date().getTime();
 
   // 0. MQL Outreach
-  // Include rows where lead_status IS NULL — PostgreSQL's NOT IN evaluates NULL as
-  // unknown and silently drops those rows, which would hide most untriaged MQL leads.
+  // Fetch all MQL-stage leads, then filter client-side to handle NULL lead_status correctly.
+  // Using .or() with not.in PostgREST syntax is unreliable — it silently drops NULL rows.
   const MQL_EXCLUDE_STATUSES = ['Contacted', 'Junk Lead', 'Lost Lead', 'Not Qualified', 'Attempted to Contact'];
-  const excludeList = `(${MQL_EXCLUDE_STATUSES.map(s => `"${s}"`).join(',')})`;
-  const { data: mqlLeads } = await supabase
+  const { data: mqlLeadsRaw } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at')
     .eq('lead_stage', 'MQL')
-    .or(`lead_status.is.null,lead_status.not.in.${excludeList}`)
     .order('created_at', { ascending: true });
 
-  const mqlOutreachLeads = mqlLeads || [];
+  // Client-side exclusion: keep leads with null status OR status NOT in the exclude list
+  const mqlOutreachLeads = (mqlLeadsRaw || []).filter(
+    l => !l.lead_status || !MQL_EXCLUDE_STATUSES.includes(l.lead_status)
+  );
 
-  // 0b. MQL History
-  // Contacted leads move to Discovery/SQL, so we only show the ones that were closed or attempted.
+  // 0b. MQL History — leads that were dealt with from the MQL Outreach queue.
+  // These are leads that had lead_stage='MQL' and were either:
+  //   a) Closed/disqualified → stage changed to 'Lead' with a terminal status
+  //   b) Attempted contact → stage still 'MQL' with 'Attempted to Contact' status
+  // We identify them by the combination: historical status + (MQL stage OR wa_closed/wa_sla_resolved state)
   const MQL_HISTORY_STATUSES = ['Junk Lead', 'Lost Lead', 'Not Qualified', 'Attempted to Contact'];
-  const { data: mqlHistory } = await supabase
+  const { data: mqlHistoryRaw } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at')
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at, wa_state')
     .in('lead_status', MQL_HISTORY_STATUSES)
     .order('updated_at', { ascending: false })
-    .limit(20);
+    .limit(50);
 
-  const mqlHistoryLeads = mqlHistory || [];
+  // Filter to only leads that originated from MQL: still MQL stage, or closed/resolved
+  const mqlHistoryLeads = (mqlHistoryRaw || []).filter(
+    l => l.lead_stage === 'MQL' || l.wa_state === 'wa_closed' || l.wa_state === 'wa_sla_resolved'
+  ).slice(0, 20);
 
   // 1. Call Tracking (call_queued, call_follow_up, discovery_call)
   const { data: callTracking } = await supabase
@@ -439,52 +446,65 @@ export default async function SLAMonitorPage() {
 
       <hr className="border-gray-200" />
 
-      {/* 2.5 MQL HISTORY */}
-      {mqlHistoryLeads.length > 0 && (
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-gray-400" />
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-              MQL History{' '}
-              <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{mqlHistoryLeads.length}</span>
-            </h2>
-            <span className="text-xs text-gray-400 ml-1">Dealt MQL leads</span>
-          </div>
-          <div className="bg-gray-50 border rounded-lg overflow-hidden shadow-sm opacity-80 hover:opacity-100 transition-opacity">
-            <table className="w-full text-sm text-left">
-              <thead>
-                <tr className="bg-gray-100 border-b text-xs text-gray-500 uppercase tracking-wider">
-                  <th className={TH}>Lead</th>
-                  <th className={TH}>Status</th>
-                  <th className={TH}>Last Caller</th>
-                  <th className={TH}>Call Notes</th>
-                  <th className={TH}>Updated</th>
+      {/* 2.5 MQL HISTORY — always render so the section is visible even when empty */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-2 h-2 rounded-full bg-gray-400" />
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+            MQL History{' '}
+            <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{mqlHistoryLeads.length}</span>
+          </h2>
+          <span className="text-xs text-gray-400 ml-1">Dealt MQL leads · closed or disqualified</span>
+        </div>
+        <div className="bg-gray-50 border rounded-lg overflow-hidden shadow-sm opacity-80 hover:opacity-100 transition-opacity">
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="bg-gray-100 border-b text-xs text-gray-500 uppercase tracking-wider">
+                <th className={TH}>Lead</th>
+                <th className={TH}>Stage / Status</th>
+                <th className={TH}>Last Caller</th>
+                <th className={TH}>Call Notes</th>
+                <th className={TH}>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mqlHistoryLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">
+                    No dealt MQL leads yet — leads will appear here once a call log marks them as closed, disqualified, or attempted.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {mqlHistoryLeads.map((lead) => {
-                  const log = latestCallLogMap[lead.id];
-                  return (
-                    <tr key={lead.id} className="border-b hover:bg-gray-100/50">
-                      <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
-                      <LeadStatusCell status={lead.lead_status} />
-                      <td className={TH + ' text-xs text-gray-600'}>
-                        {log?.caller || '-'}
-                      </td>
-                      <td className={TH + ' text-xs text-gray-600 max-w-xs truncate'} title={log?.notes || ''}>
-                        {log?.notes || '-'}
-                      </td>
-                      <td className={TH + ' text-xs text-gray-500 whitespace-nowrap'}>
-                        {formatIST(log?.called_at || lead.updated_at)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+              ) : mqlHistoryLeads.map((lead) => {
+                const log = latestCallLogMap[lead.id];
+                return (
+                  <tr key={lead.id} className="border-b hover:bg-gray-100/50">
+                    <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
+                    <td className={TH}>
+                      <div className="flex flex-col gap-0.5">
+                        {lead.lead_stage && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 w-fit">{lead.lead_stage}</span>
+                        )}
+                        {lead.lead_status && (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 w-fit">{lead.lead_status}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className={TH + ' text-xs text-gray-600'}>
+                      {log?.caller || <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className={TH + ' text-xs text-gray-600 max-w-xs truncate'} title={log?.notes || ''}>
+                      {log?.notes || <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className={TH + ' text-xs text-gray-500 whitespace-nowrap'}>
+                      {formatIST(log?.called_at || lead.updated_at)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <hr className="border-gray-200" />
 
