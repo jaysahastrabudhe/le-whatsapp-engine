@@ -110,6 +110,7 @@ export default async function SLAMonitorPage() {
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at')
     .eq('lead_stage', 'MQL')
     .or(`lead_status.is.null,lead_status.not.in.${excludeList}`)
+    .not('wa_state', 'in', '("wa_closed","discovery_call","call_queued","call_follow_up","wa_sla_resolved","wa_sla_escalated")')
     .order('created_at', { ascending: true });
 
   const mqlOutreachLeads = mqlLeads || [];
@@ -187,7 +188,15 @@ export default async function SLAMonitorPage() {
     }
   }
 
-  // 5. Pipeline stats
+  // 5. Recent call log history (last 60 entries, joined with lead name/phone)
+  const { data: recentCallLogs } = await supabase
+    .from('call_logs')
+    .select('id, lead_id, caller, called_at, contact_status, notes, next_action, leads(name, phone_normalised, lead_stage)')
+    .order('called_at', { ascending: false })
+    .limit(60);
+  const callHistory = (recentCallLogs || []) as any[];
+
+  // 6. Pipeline stats
   const CALL_LOG_LAUNCH = new Date('2026-04-21T00:00:00+05:30').toISOString();
   const { count: waRepliedCount } = await supabase
     .from('leads')
@@ -607,6 +616,77 @@ export default async function SLAMonitorPage() {
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr className="border-gray-200" />
+
+      {/* 6. CALL LOG HISTORY */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-2 h-2 rounded-full bg-gray-400" />
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+            Call Log History <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{callHistory.length}</span>
+          </h2>
+          <span className="text-xs text-gray-400 ml-1">Last 60 calls · newest first</span>
+        </div>
+        <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="bg-gray-50 border-b text-xs text-gray-500 uppercase tracking-wider">
+                <th className={TH}>When</th>
+                <th className={TH}>Lead</th>
+                <th className={TH}>Caller</th>
+                <th className={TH}>Status</th>
+                <th className={TH}>Next Action</th>
+                <th className={TH}>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {callHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400">No calls logged yet.</td>
+                </tr>
+              ) : callHistory.map((log) => {
+                const statusColors: Record<string, string> = {
+                  answered:        'bg-green-100 text-green-800',
+                  no_answer:       'bg-gray-100 text-gray-600',
+                  call_back_later: 'bg-amber-100 text-amber-700',
+                };
+                const statusLabels: Record<string, string> = {
+                  answered:        'Answered',
+                  no_answer:       'No Answer',
+                  call_back_later: 'Call Back Later',
+                };
+                const actionLabels: Record<string, string> = {
+                  discovery_call:   '→ Discovery Call',
+                  ready_to_fill:    '→ Ready to Fill',
+                  close_lead:       '→ Closed',
+                  no_answer:        'Retry',
+                  followup_on_date: '→ Scheduled',
+                };
+                return (
+                  <tr key={log.id} className="border-b hover:bg-gray-50/50">
+                    <td className={TH + ' text-xs text-gray-500 whitespace-nowrap'}>{formatIST(log.called_at)}</td>
+                    <td className={TH}>
+                      <div className="font-medium text-gray-900">{log.leads?.name || '—'}</div>
+                      <div className="text-xs text-gray-400 font-mono">{log.leads?.phone_normalised}</div>
+                    </td>
+                    <td className={TH + ' text-xs text-gray-700'}>{log.caller}</td>
+                    <td className={TH}>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColors[log.contact_status] || 'bg-gray-100 text-gray-600'}`}>
+                        {statusLabels[log.contact_status] || log.contact_status}
+                      </span>
+                    </td>
+                    <td className={TH + ' text-xs text-gray-700 whitespace-nowrap'}>
+                      {actionLabels[log.next_action] || log.next_action}
+                    </td>
+                    <td className={TH + ' text-xs text-gray-500 max-w-xs truncate'}>{log.notes || '—'}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
