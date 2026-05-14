@@ -13,6 +13,7 @@ export interface DispatchOptions {
   mediaUrl?: string[];
   leadId?: string; // Optional: Supabase lead UUID for recording
   templateName?: string; // Optional: Symbolic name of the template
+  bypassCooldown?: boolean; // Campaign sends explicitly opt out of the 2-msg cooldown
 }
 
 import { getTwilioTemplateSid } from '../twilio/templates';
@@ -25,26 +26,28 @@ import { supabase } from '../supabase';
  */
 export async function dispatchMessage(opts: DispatchOptions) {
   try {
-    // Cooldown Enforcement Check
-    const { data: lead } = await supabase
-      .from('leads')
-      .select('wa_last_inbound_at')
-      .eq('phone_normalised', opts.to)
-      .single();
+    // Cooldown Enforcement Check — skipped for campaign sends (explicit broadcasts)
+    if (!opts.bypassCooldown) {
+      const { data: lead } = await supabase
+        .from('leads')
+        .select('wa_last_inbound_at')
+        .eq('phone_normalised', opts.to)
+        .single();
 
-    // Count outbound messages since last inbound (or since epoch if null)
-    const inDate = lead?.wa_last_inbound_at || new Date(0).toISOString();
-    
-    const { count } = await supabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('phone_normalised', opts.to)
-      .eq('direction', 'outbound')
-      .gt('sent_at', inDate);
+      // Count outbound messages since last inbound (or since epoch if null)
+      const inDate = lead?.wa_last_inbound_at || new Date(0).toISOString();
 
-    if (count && count >= 2) {
-      console.warn(`[Cooldown Enforcement] Dropping message to ${opts.to}. Exceeded 2 outbound messages without a reply.`);
-      return null;
+      const { count } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('phone_normalised', opts.to)
+        .eq('direction', 'outbound')
+        .gt('sent_at', inDate);
+
+      if (count && count >= 2) {
+        console.warn(`[Cooldown Enforcement] Dropping message to ${opts.to}. Exceeded 2 outbound messages without a reply.`);
+        return null;
+      }
     }
     const messageParams: any = {
       to: `whatsapp:${opts.to}`,
@@ -108,44 +111,47 @@ export async function dispatchMessage(opts: DispatchOptions) {
         moreInfo: err.moreInfo,
         status: err.status,
       });
-      // Record the failed attempt so it appears in analytics
-      if (finalLeadId) {
-        await supabase.from('messages').insert({
-          lead_id:             finalLeadId,
-          phone_normalised:    opts.to,
-          direction:           'outbound',
-          content:             null,
-          status:              'failed',
-          error_code:          String(err.code ?? err.status ?? 'unknown'),
-          template_id:         opts.templateName,
-          template_variant_id: messageParams.contentSid,
-          sender_number:       opts.from || config.TWILIO_MESSAGING_SERVICE_SID || 'system',
-          sent_at:             new Date().toISOString(),
-        }).then(({ error: dbErr }) => {
-          if (dbErr) console.warn('[Dispatcher] Could not record failed attempt:', dbErr.message);
-        });
-      }
+      // Record the failed attempt so it appears in analytics.
+      // lead_id may be null for staged-contact campaign sends — that's fine, the
+      // FK is nullable and phone_normalised keeps the row searchable.
+      await supabase.from('messages').insert({
+        lead_id:             finalLeadId ?? null,
+        phone_normalised:    opts.to,
+        direction:           'outbound',
+        content:             null,
+        status:              'failed',
+        error_code:          String(err.code ?? err.status ?? 'unknown'),
+        template_id:         opts.templateName,
+        template_variant_id: messageParams.contentSid,
+        sender_number:       opts.from || config.TWILIO_MESSAGING_SERVICE_SID || 'system',
+        sent_at:             new Date().toISOString(),
+      }).then(({ error: dbErr }) => {
+        if (dbErr) console.warn('[Dispatcher] Could not record failed attempt:', dbErr.message);
+      });
       throw err;
     }
 
-    // 4. Record outbound message in Supabase (Immutable Log)
-    // Analytics depends on 'direction' = 'outbound' and 'template_variant_id' being set
+    // 4. Record outbound message in Supabase (Immutable Log).
+    // Always insert — even when finalLeadId is null (staged-contact campaign sends).
+    // Without this row, the status webhook can't reconcile delivery state and
+    // campaign reports show nothing.
     try {
-      if (finalLeadId) {
-        await supabase.from('messages').insert({
-          lead_id:             finalLeadId,
-          twilio_sid:          message.sid,
-          phone_normalised:    opts.to,
-          direction:           'outbound',
-          content:             message.body,
-          status:              'sent',
-          template_id:         opts.templateName, // The symbolic name (e.g. wa_welcome_meta)
-          template_variant_id: messageParams.contentSid, // The actual HX... SID
-          sender_number:       opts.from || config.TWILIO_MESSAGING_SERVICE_SID || 'system',
-          sent_at:             new Date().toISOString(),
-        });
+      await supabase.from('messages').insert({
+        lead_id:             finalLeadId ?? null,
+        twilio_sid:          message.sid,
+        phone_normalised:    opts.to,
+        direction:           'outbound',
+        content:             message.body,
+        status:              'sent',
+        template_id:         opts.templateName, // The symbolic name (e.g. wa_welcome_meta)
+        template_variant_id: messageParams.contentSid, // The actual HX... SID
+        sender_number:       opts.from || config.TWILIO_MESSAGING_SERVICE_SID || 'system',
+        sent_at:             new Date().toISOString(),
+      });
 
-        // 5. Update lead's last-contact markers for analytics & state tracking
+      // 5. Update lead's last-contact markers for analytics & state tracking.
+      // Only when we have a lead — staged contacts don't exist in `leads` yet.
+      if (finalLeadId) {
         await supabase
           .from('leads')
           .update({

@@ -20,6 +20,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - **MQL History Section** (`/admin/sla-monitor`) — New UI section displaying dealt MQL leads (status: 'Attempted to Contact', 'Junk Lead', 'Lost Lead', 'Not Qualified', 'Contacted'). Shows lead info, latest caller, notes, and updated timestamp.
 - **`latestCallLogMap` extraction** — Query logic added to fetch the most recent call log per lead to render the last caller and notes for historical leads without additional network requests.
+## [5.7.0] - 2026-05-11 (Campaign Pipeline Fixes — Reports Restored)
+
+### Fixed
+- **Staged-contact campaign sends were silently unlogged** — `dispatcher.ts` only inserted a `messages` row when `finalLeadId` was truthy. For campaigns targeting Zoho Contacts (no `lead_id`), Twilio actually sent the message but our `messages` table got no row → campaign reports showed nothing because the funnel/delivery metrics had no data to compute on. Now always inserts with `lead_id = null` and `phone_normalised` populated. Backfilled 640 missing rows across the 4 older campaigns (Webinar-redo, WebinarInvite6msay, webinar-link, webinar-remind).
+- **Matched leads in campaigns silently dropped by 2-msg cooldown** — `dispatcher.ts` cooldown returned `null` for any lead with ≥2 outbound messages since last inbound, and the cron treated `null` as "didn't send" leaving `campaign_leads.status = pending` forever with no log. Added `bypassCooldown` flag to `DispatchOptions`; process-queue passes `true` for campaign jobs (broadcasts are explicit, not subject to organic-flow cooldown).
+- **Campaign commit timed out before enqueuing all leads** — `commit/route.ts` enqueued sequentially via Redis HTTP roundtrips (~100ms each × 190 items = ~19s, very close to Vercel's 60s limit). The May 6 "webinar-final-link" campaign got `campaign_leads` inserted but only some made it into the queue. Replaced sequential `for` loops with `Promise.allSettled` in chunks of 25 — drops total enqueue time to ~2s.
+
+### Recovery
+- **Re-enqueued the 190-lead May 6 campaign** ("webinar final link") — sends draining at ~20/min, completing within minutes of deploy. Now correctly logs both matched and staged sends, and `campaign_leads` advances through `pending → sent → delivered → read`.
+- **Re-queued 17 leads stuck in `first_sent` from the Twilio billing outage** — reset `wa_state = wa_pending` so the pending-sweep retries them on the next cron tick.
+
+### Operational notes (Twilio billing outage)
+- Twilio API returned `HTTP 401 / code 20003` for ~6 hours due to insufficient account balance. Account auto-reactivated on top-up — no env or code changes required. 17 organic welcome sends and most of one campaign attempt failed during the window. All recovered via the re-queue paths above.
+
+---
+
+## [5.6.0] - 2026-04-27 (Call Log Overhaul + Zoho Stage Sync)
 
 ### Changed
 - **MQL Outreach exclusions** — Expanded `MQL_EXCLUDE_STATUSES` to include `Attempted to Contact`. Leads now automatically drop out of the active MQL Outreach queue into the MQL History section as soon as a call is logged.
