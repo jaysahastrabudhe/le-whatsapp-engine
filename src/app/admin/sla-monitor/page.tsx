@@ -111,7 +111,7 @@ export default async function SLAMonitorPage() {
     .eq('lead_stage', 'MQL')
     .or(`lead_status.is.null,lead_status.not.in.${excludeList}`)
     .not('wa_state', 'in', '("wa_closed","discovery_call","call_queued","call_follow_up","wa_sla_resolved","wa_sla_escalated")')
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: false });
 
   const mqlOutreachLeads = mqlLeads || [];
 

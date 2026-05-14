@@ -6,6 +6,9 @@ const ZOHO_BASE_URL = 'https://www.zohoapis.com/crm/v2';
 const FIELDS = 'id,Phone,Mobile,Full_Name,Email,Lead_Stage,Lead_Status';
 const PAGE_SIZE = 200;
 
+const AUTO_ASSIGN_MEMBERS = ['Sharjeel', 'Jonathan'] as const;
+const DAILY_LIMIT = 20;
+
 function normalisePhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const digits = raw.replace(/\D/g, '');
@@ -80,25 +83,71 @@ async function handleSync(request: Request) {
     return NextResponse.json({ success: true, totalProcessed: 0, totalCreated: 0, totalUpdated: 0, totalSkipped });
   }
 
+  // ── Auto-assign setup ────────────────────────────────────────────────────
+  // Count MQL leads already assigned to each auto-assign member today (since 6am IST).
+  // Uses created_at to count only leads introduced today — prevents the counter from
+  // inflating on every resync of existing leads.
+  const today6amIST = new Date(
+    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T06:00:00+05:30'
+  ).toISOString();
+
+  const { data: todayAssigned } = await supabase
+    .from('leads')
+    .select('call_assigned_to')
+    .in('call_assigned_to', AUTO_ASSIGN_MEMBERS as unknown as string[])
+    .eq('lead_stage', 'MQL')
+    .gte('created_at', today6amIST);
+
+  const assignCounts: Record<string, number> = { Sharjeel: 0, Jonathan: 0 };
+  for (const row of todayAssigned || []) {
+    if (row.call_assigned_to && row.call_assigned_to in assignCounts) {
+      assignCounts[row.call_assigned_to]++;
+    }
+  }
+  console.log('[MQL Sync] Auto-assign counts today:', assignCounts);
+
+  // Returns next assignee (lowest count, under limit), or null when both at cap.
+  // Mutates assignCounts so successive calls in this sync stay balanced.
+  function nextAssignee(): string | null {
+    const available = (AUTO_ASSIGN_MEMBERS as readonly string[])
+      .filter(m => assignCounts[m] < DAILY_LIMIT)
+      .sort((a, b) => assignCounts[a] - assignCounts[b]);
+    if (available.length === 0) return null;
+    const chosen = available[0];
+    assignCounts[chosen]++;
+    return chosen;
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
   // Batch-fetch all matching leads from Supabase in ONE query
-  const phones   = valid.map(r => r.phone);
-  const zohoIds  = valid.map(r => r.zohoId);
+  const phones  = valid.map(r => r.phone);
+  const zohoIds = valid.map(r => r.zohoId);
 
   const { data: existing } = await supabase
     .from('leads')
-    .select('id, phone_normalised, zoho_lead_id')
+    .select('id, phone_normalised, zoho_lead_id, call_assigned_to')
     .or(`phone_normalised.in.(${phones.join(',')}),zoho_lead_id.in.(${zohoIds.join(',')})`);
 
-  const existingByPhone  = new Map((existing || []).map(l => [l.phone_normalised, l.id]));
-  const existingByZohoId = new Map((existing || []).map(l => [l.zoho_lead_id,     l.id]));
+  const existingByPhone  = new Map((existing || []).map(l => [l.phone_normalised, l]));
+  const existingByZohoId = new Map((existing || []).map(l => [l.zoho_lead_id,     l]));
 
-  const toUpdate: { id: string; lead_stage: string; lead_status: string | null }[] = [];
+  const toUpdate: { id: string; lead_stage: string; lead_status: string | null; call_assigned_to?: string }[] = [];
   const toInsert: object[] = [];
 
   for (const rec of valid) {
-    const existingId = existingByPhone.get(rec.phone) || existingByZohoId.get(rec.zohoId);
-    if (existingId) {
-      toUpdate.push({ id: existingId, lead_stage: rec.leadStage, lead_status: rec.leadStatus });
+    const existingRow = existingByPhone.get(rec.phone) || existingByZohoId.get(rec.zohoId);
+    if (existingRow) {
+      const update: typeof toUpdate[number] = {
+        id: existingRow.id,
+        lead_stage: rec.leadStage,
+        lead_status: rec.leadStatus,
+      };
+      // Auto-assign only if currently unassigned
+      if (!existingRow.call_assigned_to) {
+        const assignee = nextAssignee();
+        if (assignee) update.call_assigned_to = assignee;
+      }
+      toUpdate.push(update);
     } else {
       toInsert.push({
         zoho_lead_id:     rec.zohoId,
@@ -109,24 +158,28 @@ async function handleSync(request: Request) {
         lead_status:      rec.leadStatus,
         wa_state:         'wa_pending',
         wa_opt_in:        true,
-        zoho_synced_at:   new Date().toISOString(), // already came from Zoho — no WA fields to write back
+        zoho_synced_at:   new Date().toISOString(),
+        call_assigned_to: nextAssignee(),
       });
     }
   }
 
-  // Batch update — run individual updates in parallel (still much faster than sequential awaits)
+  // Batch update — run individual updates in parallel
   let totalUpdated = 0;
   let totalCreated = 0;
   const now = new Date().toISOString();
 
   if (toUpdate.length > 0) {
     const results = await Promise.all(
-      toUpdate.map(r =>
-        supabase
-          .from('leads')
-          .update({ lead_stage: r.lead_stage, lead_status: r.lead_status, updated_at: now })
-          .eq('id', r.id)
-      )
+      toUpdate.map(r => {
+        const fields: Record<string, any> = {
+          lead_stage:  r.lead_stage,
+          lead_status: r.lead_status,
+          updated_at:  now,
+        };
+        if (r.call_assigned_to) fields.call_assigned_to = r.call_assigned_to;
+        return supabase.from('leads').update(fields).eq('id', r.id);
+      })
     );
     const errors = results.filter(r => r.error);
     if (errors.length > 0) console.error(`[MQL Sync] ${errors.length} update errors`);
@@ -146,7 +199,7 @@ async function handleSync(request: Request) {
     }
   }
 
-  const summary = { totalProcessed: valid.length + totalSkipped, totalCreated, totalUpdated, totalSkipped };
+  const summary = { totalProcessed: valid.length + totalSkipped, totalCreated, totalUpdated, totalSkipped, assignCounts };
   console.log('[MQL Sync] Done:', summary);
   return NextResponse.json({ success: true, ...summary });
 }
