@@ -103,7 +103,7 @@ export default async function SLAMonitorPage() {
   // 0. MQL Outreach
   // Include rows where lead_status IS NULL — PostgreSQL's NOT IN evaluates NULL as
   // unknown and silently drops those rows, which would hide most untriaged MQL leads.
-  const MQL_EXCLUDE_STATUSES = ['Contacted', 'Junk Lead', 'Lost Lead', 'Not Qualified'];
+  const MQL_EXCLUDE_STATUSES = ['Contacted', 'Junk Lead', 'Lost Lead', 'Not Qualified', 'Attempted to Contact'];
   const excludeList = `(${MQL_EXCLUDE_STATUSES.map(s => `"${s}"`).join(',')})`;
   const { data: mqlLeads } = await supabase
     .from('leads')

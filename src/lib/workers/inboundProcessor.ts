@@ -143,9 +143,14 @@ export async function processInboundMessage(job: { data: Record<string, string> 
     ...(webinarRsvpUpdate !== null ? { webinar_rsvp: webinarRsvpUpdate } : {}),
   };
 
-  // ── STEP C: SLA alert for hot leads ──────────────────────────────────────
+  // ── STEP C: SLA alert for leads that need human follow-up ────────────────
+  // Hot leads (interested / fee_question) → 2-hour SLA
+  // Other free-text replies → 4-hour SLA (still need human review, just less urgent)
   if (replyClass === 'interested' || replyClass === 'fee_question') {
     const slaDeadline = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(); // +2h
+    leadUpdate.wa_human_response_due_at = slaDeadline;
+  } else if (replyClass === 'other') {
+    const slaDeadline = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(); // +4h
     leadUpdate.wa_human_response_due_at = slaDeadline;
   }
 
