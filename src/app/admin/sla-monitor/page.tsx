@@ -3,6 +3,7 @@ import ManualReplyForm from '@/components/ManualReplyForm';
 import CallLogWrapper from '@/components/CallLogWrapper';
 import TriggerCronButton from '@/components/TriggerCronButton';
 import AssignDropdown from '@/components/AssignDropdown';
+import NoteTooltip from '@/components/NoteTooltip';
 import { ChevronRight } from 'lucide-react';
 
 export const revalidate = 0;
@@ -50,19 +51,10 @@ function computeNoAnswerCount(logs: { contact_status: string }[]): number {
   return count;
 }
 
-// Last-note badge — compact preview with full text on hover
-function NotesBadge({ note }: { note?: { caller: string; notes: string } | null }) {
+// Inline helper so server component can conditionally render the client NoteTooltip
+function MaybeNote({ note }: { note?: { caller: string; notes: string } | null }) {
   if (!note?.notes?.trim()) return null;
-  const fullText = `[${note.caller}] ${note.notes}`;
-  return (
-    <p
-      title={fullText}
-      className="mt-1.5 text-[10px] italic text-gray-400 cursor-help leading-tight max-w-[220px] truncate border-t border-gray-100 pt-1"
-    >
-      <span className="not-italic font-semibold text-gray-500">{note.caller}:</span>{' '}
-      {note.notes}
-    </p>
-  );
+  return <NoteTooltip caller={note.caller} notes={note.notes} />;
 }
 
 // Unified lead cell: name + phone + attempt badge + reply class pill
@@ -413,7 +405,7 @@ export default async function SLAMonitorPage() {
                     </td>
                     <td className={TH + ' text-xs text-red-600 font-medium whitespace-nowrap'}>
                       Escalated {formatIST(lead.updated_at)}
-                      <NotesBadge note={lastNoteMap[lead.id]} />
+                      <MaybeNote note={lastNoteMap[lead.id]} />
                     </td>
                     <td className={TH + ' text-right'}>
                       <CallLogWrapper lead={lead} queueType="whatsapp_reply" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
@@ -461,7 +453,7 @@ export default async function SLAMonitorPage() {
                   </td>
                   <td className={TH + ' text-xs text-gray-500'}>
                     Updated {formatIST(lead.updated_at)}
-                    <NotesBadge note={lastNoteMap[lead.id]} />
+                    <MaybeNote note={lastNoteMap[lead.id]} />
                   </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper lead={lead} queueType="mql_outreach" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
@@ -541,7 +533,7 @@ export default async function SLAMonitorPage() {
                           {contextLabel}
                         </span>
                       </div>
-                      <NotesBadge note={lastNoteMap[lead.id]} />
+                      <MaybeNote note={lastNoteMap[lead.id]} />
                     </td>
                     <td className={TH + ' text-right'}>
                       <CallLogWrapper
@@ -595,7 +587,7 @@ export default async function SLAMonitorPage() {
                       ? <span className="text-amber-600">Follow-up due {formatIST(lead.followup_call_at)}</span>
                       : formatIST(lead.updated_at)
                     }
-                    <NotesBadge note={lastNoteMap[lead.id]} />
+                    <MaybeNote note={lastNoteMap[lead.id]} />
                   </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper lead={lead} queueType="discovery_call" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
@@ -650,7 +642,7 @@ export default async function SLAMonitorPage() {
                         {formatIST(lead.followup_call_at)}
                       </span>
                     </div>
-                    <NotesBadge note={lastNoteMap[lead.id]} />
+                    <MaybeNote note={lastNoteMap[lead.id]} />
                   </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper
@@ -713,7 +705,7 @@ export default async function SLAMonitorPage() {
                       </td>
                       <td className="px-4 py-3 text-xs text-rose-600 font-medium whitespace-nowrap">
                         {formatIST(lead.wa_last_inbound_at)}
-                        <NotesBadge note={lastNoteMap[lead.id]} />
+                        <MaybeNote note={lastNoteMap[lead.id]} />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <CallLogWrapper lead={lead} queueType="call_queue" noAnswerCount={0} />
@@ -759,7 +751,7 @@ export default async function SLAMonitorPage() {
                         <td className="px-4 py-3 text-xs whitespace-nowrap">
                           <span className="text-orange-600 font-semibold">{daysOverdue}d overdue</span>
                           <span className="text-gray-400 ml-1">· {formatIST(lead.followup_call_at)}</span>
-                          <NotesBadge note={lastNoteMap[lead.id]} />
+                          <MaybeNote note={lastNoteMap[lead.id]} />
                         </td>
                         <td className="px-4 py-3 text-right">
                           <CallLogWrapper
