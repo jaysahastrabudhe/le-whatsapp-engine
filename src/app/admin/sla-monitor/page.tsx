@@ -57,12 +57,17 @@ function MaybeNote({ note }: { note?: { caller: string; notes: string } | null }
   return <NoteTooltip caller={note.caller} notes={note.notes} />;
 }
 
-// Unified lead cell: name + phone + attempt badge + reply class pill
-function LeadCell({ lead, noAnswerCount = 0 }: { lead: any; noAnswerCount?: number }) {
+// Unified lead cell: name + phone + attempt badge + reply class pill + called tag
+function LeadCell({ lead, noAnswerCount = 0, called = false }: { lead: any; noAnswerCount?: number; called?: boolean }) {
   return (
     <td className="px-4 py-3">
       <div className="font-medium text-gray-900 flex items-center gap-1.5 flex-wrap">
         {lead.name || '—'}
+        {called && (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 whitespace-nowrap">
+            Called
+          </span>
+        )}
         {noAnswerCount > 0 && (
           <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap ${
             noAnswerCount >= 3 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
@@ -205,6 +210,7 @@ export default async function SLAMonitorPage() {
 
   const noAnswerCountMap: Record<string, number> = {};
   const lastNoteMap: Record<string, { caller: string; notes: string }> = {};
+  const calledSet = new Set<string>();
 
   if (callLeadIds.length > 0) {
     const { data: callLogData } = await supabase
@@ -220,6 +226,7 @@ export default async function SLAMonitorPage() {
     }
     for (const [leadId, logs] of Object.entries(byLead)) {
       noAnswerCountMap[leadId] = computeNoAnswerCount(logs);
+      calledSet.add(leadId);
       // Most recent log that has non-empty notes
       const withNote = logs.find(l => l.notes?.trim());
       if (withNote) lastNoteMap[leadId] = { caller: withNote.caller, notes: withNote.notes };
@@ -397,7 +404,7 @@ export default async function SLAMonitorPage() {
               <tbody>
                 {escalatedLeads.map((lead) => (
                   <tr key={lead.id} className="border-b border-red-100/50 hover:bg-red-50/40 bg-white">
-                    <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
+                    <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} />
                     <LeadStatusCell status={lead.lead_status} />
                     <HotnessCell hotness={lead.wa_hotness} />
                     <td className={TH}>
@@ -445,7 +452,7 @@ export default async function SLAMonitorPage() {
                 </tr>
               ) : mqlOutreachLeads.map((lead) => (
                 <tr key={lead.id} className="border-b hover:bg-amber-50/20">
-                  <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
+                  <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} />
                   <LeadStatusCell status={lead.lead_status} />
                   <HotnessCell hotness={lead.wa_hotness} />
                   <td className={TH}>
@@ -512,7 +519,7 @@ export default async function SLAMonitorPage() {
 
                 return (
                   <tr key={lead.id} className={`border-b hover:bg-gray-50/50 ${isBreached ? 'bg-red-50/40' : ''}`}>
-                    <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
+                    <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} />
                     <LeadStatusCell status={lead.lead_status} />
                     <HotnessCell hotness={lead.wa_hotness} />
                     <td className={TH}>
@@ -576,7 +583,7 @@ export default async function SLAMonitorPage() {
                 </tr>
               ) : discoveryQueueLeads.map((lead) => (
                 <tr key={lead.id} className="border-b hover:bg-gray-50/50">
-                  <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
+                  <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} />
                   <LeadStatusCell status={lead.lead_status} />
                   <HotnessCell hotness={lead.wa_hotness} />
                   <td className={TH}>
@@ -625,7 +632,7 @@ export default async function SLAMonitorPage() {
                 </tr>
               ) : scheduledLeads.map((lead) => (
                 <tr key={lead.id} className="border-b hover:bg-gray-50/50">
-                  <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
+                  <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} />
                   <LeadStatusCell status={lead.lead_status} />
                   <HotnessCell hotness={lead.wa_hotness} />
                   <td className={TH}>
@@ -697,7 +704,7 @@ export default async function SLAMonitorPage() {
                 <tbody>
                   {backlogRepliedLeads.map((lead) => (
                     <tr key={lead.id} className="border-b border-rose-50 hover:bg-rose-50/20">
-                      <LeadCell lead={lead} />
+                      <LeadCell lead={lead} called={calledSet.has(lead.id)} />
                       <LeadStatusCell status={lead.lead_status} />
                       <HotnessCell hotness={lead.wa_hotness} />
                       <td className="px-4 py-3">
@@ -742,7 +749,7 @@ export default async function SLAMonitorPage() {
                     const daysOverdue = Math.floor((Date.now() - new Date(lead.followup_call_at!).getTime()) / (1000 * 60 * 60 * 24));
                     return (
                       <tr key={lead.id} className="border-b border-orange-50 hover:bg-orange-50/20">
-                        <LeadCell lead={lead} />
+                        <LeadCell lead={lead} called={calledSet.has(lead.id)} />
                         <LeadStatusCell status={lead.lead_status} />
                         <HotnessCell hotness={lead.wa_hotness} />
                         <td className="px-4 py-3">
