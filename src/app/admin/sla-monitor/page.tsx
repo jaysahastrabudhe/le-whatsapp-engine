@@ -142,11 +142,14 @@ export default async function SLAMonitorPage() {
   ).sort((a, b) => new Date(a.followup_call_at!).getTime() - new Date(b.followup_call_at!).getTime());
 
   // Backlog A: WA replied leads that were never actioned (no call made after reply)
+  // Only include leads that replied after Apr 21 — the system launch date
+  const SYSTEM_LAUNCH = '2026-04-21T00:00:00+05:30';
   const { data: backlogReplied } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, call_assigned_to, lead_status, wa_state')
     .eq('wa_state', 'replied')
     .not('wa_last_inbound_at', 'is', null)
+    .gte('wa_last_inbound_at', SYSTEM_LAUNCH)
     .order('wa_last_inbound_at', { ascending: true });
 
   // Backlog B: Scheduled follow-ups that are 3+ days overdue with no call logged after due date
