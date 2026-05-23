@@ -141,6 +141,27 @@ export default async function SLAMonitorPage() {
     l.followup_call_at && new Date(l.followup_call_at).getTime() > now
   ).sort((a, b) => new Date(a.followup_call_at!).getTime() - new Date(b.followup_call_at!).getTime());
 
+  // Backlog A: WA replied leads that were never actioned (no call made after reply)
+  const { data: backlogReplied } = await supabase
+    .from('leads')
+    .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, call_assigned_to, lead_status, wa_state')
+    .eq('wa_state', 'replied')
+    .not('wa_last_inbound_at', 'is', null)
+    .order('wa_last_inbound_at', { ascending: true });
+
+  // Backlog B: Scheduled follow-ups that are 3+ days overdue with no call logged after due date
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: backlogOverdue } = await supabase
+    .from('leads')
+    .select('id, name, phone_normalised, zoho_lead_id, followup_call_at, wa_reply_class, wa_hotness, call_assigned_to, lead_status, wa_state')
+    .in('wa_state', ['call_follow_up', 'discovery_call'])
+    .not('followup_call_at', 'is', null)
+    .lt('followup_call_at', threeDaysAgo)
+    .order('followup_call_at', { ascending: true });
+
+  const backlogRepliedLeads = backlogReplied || [];
+  const backlogOverdueLeads = backlogOverdue || [];
+
   // 2. WhatsApp SLAs (Active)
   const { data: active } = await supabase
     .from('leads')
@@ -610,6 +631,122 @@ export default async function SLAMonitorPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <hr className="border-gray-200" />
+
+      {/* 6. BACKLOG CALLS */}
+      <section>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+            Backlog Calls{' '}
+            <span className="ml-1 bg-rose-100 text-rose-700 py-0.5 px-2 rounded-full text-xs">
+              {backlogRepliedLeads.length + backlogOverdueLeads.length}
+            </span>
+          </h2>
+        </div>
+        <p className="text-xs text-gray-400 mb-4 ml-4">
+          Leads who replied on WhatsApp but were never called back, or had a scheduled follow-up that was missed by 3+ days.
+        </p>
+
+        {/* Backlog A: WA Replied — No Call Made */}
+        {backlogRepliedLeads.length > 0 && (
+          <div className="mb-5">
+            <p className="text-xs font-semibold text-rose-600 uppercase tracking-wider mb-2 flex items-center gap-2">
+              💬 WA Replied — No Call Made
+              <span className="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full text-xs font-semibold">{backlogRepliedLeads.length}</span>
+            </p>
+            <div className="bg-white border border-rose-200 rounded-lg overflow-hidden shadow-sm">
+              <table className="w-full text-sm text-left">
+                <thead>
+                  <tr className="bg-rose-50/40 border-b text-xs text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-2">Lead</th>
+                    <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2">Hotness</th>
+                    <th className="px-4 py-2">Assigned</th>
+                    <th className="px-4 py-2">Replied</th>
+                    <th className="px-4 py-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backlogRepliedLeads.map((lead) => (
+                    <tr key={lead.id} className="border-b border-rose-50 hover:bg-rose-50/20">
+                      <LeadCell lead={lead} />
+                      <LeadStatusCell status={lead.lead_status} />
+                      <HotnessCell hotness={lead.wa_hotness} />
+                      <td className="px-4 py-3">
+                        <AssignDropdown leadId={lead.id} currentAssignee={lead.call_assigned_to} />
+                      </td>
+                      <td className="px-4 py-3 text-xs text-rose-600 font-medium whitespace-nowrap">
+                        {formatIST(lead.wa_last_inbound_at)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <CallLogWrapper lead={lead} queueType="call_queue" noAnswerCount={0} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Backlog B: Missed Follow-ups (3+ days overdue) */}
+        {backlogOverdueLeads.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-orange-600 uppercase tracking-wider mb-2 flex items-center gap-2">
+              📞 Missed Follow-ups — 3+ Days Overdue
+              <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full text-xs font-semibold">{backlogOverdueLeads.length}</span>
+            </p>
+            <div className="bg-white border border-orange-200 rounded-lg overflow-hidden shadow-sm">
+              <table className="w-full text-sm text-left">
+                <thead>
+                  <tr className="bg-orange-50/40 border-b text-xs text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-2">Lead</th>
+                    <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2">Hotness</th>
+                    <th className="px-4 py-2">Assigned</th>
+                    <th className="px-4 py-2">Was Due</th>
+                    <th className="px-4 py-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backlogOverdueLeads.map((lead) => {
+                    const daysOverdue = Math.floor((Date.now() - new Date(lead.followup_call_at!).getTime()) / (1000 * 60 * 60 * 24));
+                    return (
+                      <tr key={lead.id} className="border-b border-orange-50 hover:bg-orange-50/20">
+                        <LeadCell lead={lead} />
+                        <LeadStatusCell status={lead.lead_status} />
+                        <HotnessCell hotness={lead.wa_hotness} />
+                        <td className="px-4 py-3">
+                          <AssignDropdown leadId={lead.id} currentAssignee={lead.call_assigned_to} />
+                        </td>
+                        <td className="px-4 py-3 text-xs whitespace-nowrap">
+                          <span className="text-orange-600 font-semibold">{daysOverdue}d overdue</span>
+                          <span className="text-gray-400 ml-1">· {formatIST(lead.followup_call_at)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <CallLogWrapper
+                            lead={lead}
+                            queueType={lead.wa_state === 'discovery_call' ? 'discovery_call' : 'call_queue'}
+                            noAnswerCount={0}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {backlogRepliedLeads.length === 0 && backlogOverdueLeads.length === 0 && (
+          <div className="bg-white border rounded-lg px-4 py-10 text-center text-gray-400 text-sm">
+            No backlog — all replies and follow-ups are on track. 🎉
+          </div>
+        )}
       </section>
 
       <hr className="border-gray-200 mt-12 mb-8" />
