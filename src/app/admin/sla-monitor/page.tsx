@@ -50,6 +50,21 @@ function computeNoAnswerCount(logs: { contact_status: string }[]): number {
   return count;
 }
 
+// Last-note badge — compact preview with full text on hover
+function NotesBadge({ note }: { note?: { caller: string; notes: string } | null }) {
+  if (!note?.notes?.trim()) return null;
+  const fullText = `[${note.caller}] ${note.notes}`;
+  return (
+    <p
+      title={fullText}
+      className="mt-1.5 text-[10px] italic text-gray-400 cursor-help leading-tight max-w-[220px] truncate border-t border-gray-100 pt-1"
+    >
+      <span className="not-italic font-semibold text-gray-500">{note.caller}:</span>{' '}
+      {note.notes}
+    </p>
+  );
+}
+
 // Unified lead cell: name + phone + attempt badge + reply class pill
 function LeadCell({ lead, noAnswerCount = 0 }: { lead: any; noAnswerCount?: number }) {
   return (
@@ -184,30 +199,38 @@ export default async function SLAMonitorPage() {
   const activeLeads = active || [];
   const escalatedLeads = escalated || [];
 
-  // 4. Compute noAnswerCount per lead (single query across all call queue leads)
+  // 4. Compute noAnswerCount + last caller note per lead (all sections in one query)
   const callLeadIds = [
     ...callQueueLeads,
     ...discoveryQueueLeads,
     ...scheduledLeads,
     ...mqlOutreachLeads,
     ...escalatedLeads,
+    ...activeLeads,
+    ...backlogRepliedLeads,
+    ...backlogOverdueLeads,
   ].map(l => l.id).filter(Boolean);
 
   const noAnswerCountMap: Record<string, number> = {};
+  const lastNoteMap: Record<string, { caller: string; notes: string }> = {};
+
   if (callLeadIds.length > 0) {
     const { data: callLogData } = await supabase
       .from('call_logs')
-      .select('lead_id, contact_status')
+      .select('lead_id, contact_status, caller, notes')
       .in('lead_id', callLeadIds)
       .order('called_at', { ascending: false });
 
-    const byLead: Record<string, { contact_status: string }[]> = {};
+    const byLead: Record<string, { contact_status: string; caller: string; notes: string }[]> = {};
     for (const log of callLogData ?? []) {
       if (!byLead[log.lead_id]) byLead[log.lead_id] = [];
       byLead[log.lead_id].push(log);
     }
     for (const [leadId, logs] of Object.entries(byLead)) {
       noAnswerCountMap[leadId] = computeNoAnswerCount(logs);
+      // Most recent log that has non-empty notes
+      const withNote = logs.find(l => l.notes?.trim());
+      if (withNote) lastNoteMap[leadId] = { caller: withNote.caller, notes: withNote.notes };
     }
   }
 
@@ -390,6 +413,7 @@ export default async function SLAMonitorPage() {
                     </td>
                     <td className={TH + ' text-xs text-red-600 font-medium whitespace-nowrap'}>
                       Escalated {formatIST(lead.updated_at)}
+                      <NotesBadge note={lastNoteMap[lead.id]} />
                     </td>
                     <td className={TH + ' text-right'}>
                       <CallLogWrapper lead={lead} queueType="whatsapp_reply" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
@@ -435,7 +459,10 @@ export default async function SLAMonitorPage() {
                   <td className={TH}>
                     <AssignDropdown leadId={lead.id} currentAssignee={lead.call_assigned_to} />
                   </td>
-                  <td className={TH + ' text-xs text-gray-500'}>Updated {formatIST(lead.updated_at)}</td>
+                  <td className={TH + ' text-xs text-gray-500'}>
+                    Updated {formatIST(lead.updated_at)}
+                    <NotesBadge note={lastNoteMap[lead.id]} />
+                  </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper lead={lead} queueType="mql_outreach" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
                   </td>
@@ -514,6 +541,7 @@ export default async function SLAMonitorPage() {
                           {contextLabel}
                         </span>
                       </div>
+                      <NotesBadge note={lastNoteMap[lead.id]} />
                     </td>
                     <td className={TH + ' text-right'}>
                       <CallLogWrapper
@@ -567,6 +595,7 @@ export default async function SLAMonitorPage() {
                       ? <span className="text-amber-600">Follow-up due {formatIST(lead.followup_call_at)}</span>
                       : formatIST(lead.updated_at)
                     }
+                    <NotesBadge note={lastNoteMap[lead.id]} />
                   </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper lead={lead} queueType="discovery_call" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} />
@@ -621,6 +650,7 @@ export default async function SLAMonitorPage() {
                         {formatIST(lead.followup_call_at)}
                       </span>
                     </div>
+                    <NotesBadge note={lastNoteMap[lead.id]} />
                   </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper
@@ -683,6 +713,7 @@ export default async function SLAMonitorPage() {
                       </td>
                       <td className="px-4 py-3 text-xs text-rose-600 font-medium whitespace-nowrap">
                         {formatIST(lead.wa_last_inbound_at)}
+                        <NotesBadge note={lastNoteMap[lead.id]} />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <CallLogWrapper lead={lead} queueType="call_queue" noAnswerCount={0} />
@@ -728,6 +759,7 @@ export default async function SLAMonitorPage() {
                         <td className="px-4 py-3 text-xs whitespace-nowrap">
                           <span className="text-orange-600 font-semibold">{daysOverdue}d overdue</span>
                           <span className="text-gray-400 ml-1">· {formatIST(lead.followup_call_at)}</span>
+                          <NotesBadge note={lastNoteMap[lead.id]} />
                         </td>
                         <td className="px-4 py-3 text-right">
                           <CallLogWrapper
