@@ -196,41 +196,28 @@ export default async function SLAMonitorPage() {
   const activeLeads = active || [];
   const escalatedLeads = escalated || [];
 
-  // 4. Compute noAnswerCount + last caller note per lead (all sections in one query)
-  const callLeadIds = [
-    ...callQueueLeads,
-    ...discoveryQueueLeads,
-    ...scheduledLeads,
-    ...mqlOutreachLeads,
-    ...escalatedLeads,
-    ...activeLeads,
-    ...backlogRepliedLeads,
-    ...backlogOverdueLeads,
-  ].map(l => l.id).filter(Boolean);
+  // 4. Fetch all call logs in one shot — used for noAnswerCount, calledSet, and last note
+  // Fetching all logs (not filtered by current page leads) ensures the Called tag
+  // is accurate for any lead, regardless of what section they appear in.
+  const { data: callLogData } = await supabase
+    .from('call_logs')
+    .select('lead_id, contact_status, caller, notes')
+    .order('called_at', { ascending: false });
 
   const noAnswerCountMap: Record<string, number> = {};
   const lastNoteMap: Record<string, { caller: string; notes: string }> = {};
   const calledSet = new Set<string>();
 
-  if (callLeadIds.length > 0) {
-    const { data: callLogData } = await supabase
-      .from('call_logs')
-      .select('lead_id, contact_status, caller, notes')
-      .in('lead_id', callLeadIds)
-      .order('called_at', { ascending: false });
-
-    const byLead: Record<string, { contact_status: string; caller: string; notes: string }[]> = {};
-    for (const log of callLogData ?? []) {
-      if (!byLead[log.lead_id]) byLead[log.lead_id] = [];
-      byLead[log.lead_id].push(log);
-    }
-    for (const [leadId, logs] of Object.entries(byLead)) {
-      noAnswerCountMap[leadId] = computeNoAnswerCount(logs);
-      calledSet.add(leadId);
-      // Most recent log that has non-empty notes
-      const withNote = logs.find(l => l.notes?.trim());
-      if (withNote) lastNoteMap[leadId] = { caller: withNote.caller, notes: withNote.notes };
-    }
+  const byLead: Record<string, { contact_status: string; caller: string; notes: string }[]> = {};
+  for (const log of callLogData ?? []) {
+    if (!byLead[log.lead_id]) byLead[log.lead_id] = [];
+    byLead[log.lead_id].push(log);
+  }
+  for (const [leadId, logs] of Object.entries(byLead)) {
+    noAnswerCountMap[leadId] = computeNoAnswerCount(logs);
+    calledSet.add(leadId);
+    const withNote = logs.find(l => l.notes?.trim());
+    if (withNote) lastNoteMap[leadId] = { caller: withNote.caller, notes: withNote.notes };
   }
 
   // 5. Pipeline stats
