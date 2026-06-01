@@ -122,7 +122,7 @@ export default async function SLAMonitorPage() {
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at')
     .eq('lead_stage', 'MQL')
     .or(`lead_status.is.null,lead_status.not.in.${excludeList}`)
-    .order('created_at', { ascending: true });
+    .order('updated_at', { ascending: false });
 
   const mqlOutreachLeads = mqlLeads || [];
 
