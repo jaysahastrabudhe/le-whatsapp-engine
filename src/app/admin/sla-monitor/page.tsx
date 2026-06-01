@@ -259,7 +259,12 @@ export default async function SLAMonitorPage() {
   const callQueueLeadsMapped = callQueueLeads.map(lead => ({
     ...lead,
     listType: 'manual_call',
-    sortTime: lead.followup_call_at ? new Date(lead.followup_call_at).getTime() : new Date(lead.updated_at).getTime(),
+    // Overdue follow-ups use their followup_call_at (past timestamp → sort first, most overdue first).
+    // Pure call_queued leads: invert created_at so newest lead = smallest value = appears first,
+    // and all values stay > any overdue date (anchor 2030 >> any current timestamp).
+    sortTime: lead.followup_call_at
+      ? new Date(lead.followup_call_at).getTime()
+      : new Date('2030-01-01').getTime() * 2 - new Date(lead.created_at).getTime(),
   }));
   const activeLeadsMapped = activeLeads.map(lead => ({
     ...lead,
