@@ -129,9 +129,9 @@ export default async function SLAMonitorPage() {
   // 1. Call Tracking (call_queued, call_follow_up, discovery_call)
   const { data: callTracking } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, call_assigned_to, lead_status, wa_reply_class, updated_at, wa_state, followup_call_at, wa_hotness')
+    .select('id, name, phone_normalised, zoho_lead_id, call_assigned_to, lead_status, wa_reply_class, updated_at, created_at, wa_state, followup_call_at, wa_hotness')
     .in('wa_state', ['call_queued', 'call_follow_up', 'discovery_call'])
-    .order('updated_at', { ascending: false });
+    .order('created_at', { ascending: false });
 
   const allCallLeads = callTracking || [];
 
@@ -501,7 +501,7 @@ export default async function SLAMonitorPage() {
                 } else {
                   contextLabel = lead.followup_call_at
                     ? `Follow-up due ${formatIST(lead.followup_call_at)}`
-                    : `Queued ${formatIST(lead.updated_at)}`;
+                    : `Queued ${formatIST(lead.created_at)}`;
                 }
 
                 return (
