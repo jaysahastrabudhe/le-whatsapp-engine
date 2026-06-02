@@ -1,5 +1,6 @@
 import { getTwilioTemplates } from '@/lib/twilio/templates';
 import RefreshTemplatesButton from '@/components/admin/RefreshTemplatesButton';
+import CreateTemplateButton from '@/components/admin/CreateTemplateButton';
 
 export const revalidate = 0;
 
@@ -23,7 +24,10 @@ export default async function TemplatesPage() {
           <h1 className="text-3xl font-bold tracking-tight text-gray-900">WhatsApp Templates</h1>
           <p className="text-gray-500 mt-1">Live from Twilio Content API · {templates.length} total</p>
         </div>
-        <RefreshTemplatesButton />
+        <div className="flex items-center gap-2">
+          <CreateTemplateButton />
+          <RefreshTemplatesButton />
+        </div>
       </div>
 
       {/* Summary */}
