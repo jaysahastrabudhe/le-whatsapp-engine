@@ -4,7 +4,7 @@ import { syncTemplatesToSupabase } from '@/lib/twilio/templates';
 
 export async function POST(request: Request) {
   try {
-    const { name, body, category, buttons } = await request.json();
+    const { name, body, category, buttons, language } = await request.json();
 
     if (!name || !body || !category) {
       return NextResponse.json({ error: 'name, body and category are required' }, { status: 400 });
@@ -41,6 +41,7 @@ export async function POST(request: Request) {
 
     const payload: Record<string, any> = {
       friendly_name: name,
+      language: language || 'en',   // Twilio Content API requires a language (error 20001 if null)
       types: contentType,
     };
     if (Object.keys(variables).length > 0) {
