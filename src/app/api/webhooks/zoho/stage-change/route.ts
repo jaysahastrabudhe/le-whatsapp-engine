@@ -75,8 +75,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Detect demotion out of MQL (e.g. MQL → Leads)
-    const CALL_QUEUE_STATES = ['call_queued', 'call_follow_up', 'discovery_call'];
     const isMqlDemotion = existing.lead_stage === 'MQL' && normStage !== null && normStage !== 'MQL';
+
+    // Terminal states a demoted lead may legitimately already be in — leave these alone.
+    const TERMINAL_STATES = ['wa_closed', 'wa_idle', 'wa_sla_resolved'];
 
     const updatePayload: Record<string, any> = {
       lead_stage:  normStage,
@@ -84,12 +86,17 @@ export async function POST(req: NextRequest) {
       updated_at:  new Date().toISOString(),
     };
 
-    // When demoted out of MQL, evict from the call queue and cancel any scheduled follow-up
+    // When demoted out of MQL, the lead must disappear from ALL active queues, not just
+    // the call queue. Any non-terminal active state (call_queued, call_follow_up,
+    // discovery_call, replied, wa_hot, first_sent, followup_sent, etc.) gets parked to
+    // wa_idle, and every "still active" marker (scheduled callback + WhatsApp SLA timer)
+    // is cleared so it can't linger in Scheduled Callbacks, Backlog, or the Active WA SLA list.
     if (isMqlDemotion) {
-      if (CALL_QUEUE_STATES.includes(existing.wa_state ?? '')) {
+      if (!TERMINAL_STATES.includes(existing.wa_state ?? '')) {
         updatePayload.wa_state = 'wa_idle';
       }
       updatePayload.followup_call_at = null;
+      updatePayload.wa_human_response_due_at = null;
     }
 
     const { error: updateErr } = await supabase

@@ -177,12 +177,22 @@ export default async function SLAMonitorPage() {
   const backlogRepliedLeads = backlogReplied || [];
   const backlogOverdueLeads = backlogOverdue || [];
 
+  // Nurture / Not Now: leads who replied "not now" (wa_state = 'wa_nurture').
+  // These are a soft-no — not dismissed — but had no home section before, so they
+  // silently vanished. Surface them here so ops can re-engage later.
+  const { data: nurture } = await supabase
+    .from('leads')
+    .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, call_assigned_to, lead_status, wa_state')
+    .eq('wa_state', 'wa_nurture')
+    .order('wa_last_inbound_at', { ascending: false });
+  const nurtureLeads = nurture || [];
+
   // 2. WhatsApp SLAs (Active)
   const { data: active } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, owner_email, wa_hotness, wa_reply_class, lead_status, call_assigned_to, wa_human_response_due_at')
     .not('wa_human_response_due_at', 'is', null)
-    .not('wa_state', 'in', '("wa_closed","wa_sla_escalated","wa_sla_resolved")')
+    .not('wa_state', 'in', '("wa_closed","wa_idle","wa_sla_escalated","wa_sla_resolved")')
     .order('wa_human_response_due_at', { ascending: true });
 
   // 3. Escalated
@@ -646,7 +656,7 @@ export default async function SLAMonitorPage() {
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper
                       lead={lead}
-                      queueType={lead.wa_state === 'discovery_call' ? 'discovery_call' : 'whatsapp_reply'}
+                      queueType={lead.wa_state === 'discovery_call' ? 'discovery_call' : 'call_queue'}
                       noAnswerCount={noAnswerCountMap[lead.id] ?? 0}
                     />
                   </td>
@@ -774,6 +784,56 @@ export default async function SLAMonitorPage() {
           </div>
         )}
       </section>
+
+      {nurtureLeads.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-2 h-2 rounded-full bg-violet-400" />
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+              Nurture — Not Now{' '}
+              <span className="ml-1 bg-violet-100 text-violet-700 py-0.5 px-2 rounded-full text-xs">
+                {nurtureLeads.length}
+              </span>
+            </h2>
+          </div>
+          <p className="text-xs text-gray-400 mb-4 ml-4">
+            Leads who replied “not now” — a soft no, not dismissed. Re-engage later or queue a call when timing is better.
+          </p>
+          <div className="bg-white border border-violet-200 rounded-lg overflow-hidden shadow-sm">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="bg-violet-50/40 border-b text-xs text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-2">Lead</th>
+                  <th className="px-4 py-2">Status</th>
+                  <th className="px-4 py-2">Hotness</th>
+                  <th className="px-4 py-2">Assigned</th>
+                  <th className="px-4 py-2">Last Reply</th>
+                  <th className="px-4 py-2 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {nurtureLeads.map((lead) => (
+                  <tr key={lead.id} className="border-b border-violet-50 hover:bg-violet-50/20">
+                    <LeadCell lead={lead} called={calledSet.has(lead.id)} />
+                    <LeadStatusCell status={lead.lead_status} />
+                    <HotnessCell hotness={lead.wa_hotness} />
+                    <td className="px-4 py-3">
+                      <AssignDropdown leadId={lead.id} currentAssignee={lead.call_assigned_to} />
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                      {formatIST(lead.wa_last_inbound_at)}
+                      <MaybeNote note={lastNoteMap[lead.id]} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <CallLogWrapper lead={lead} queueType="call_queue" noAnswerCount={0} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <hr className="border-gray-200 mt-12 mb-8" />
 

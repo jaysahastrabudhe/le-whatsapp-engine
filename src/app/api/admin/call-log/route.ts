@@ -57,9 +57,13 @@ export async function POST(request: Request) {
       updateFields.updated_at = new Date().toISOString();
     } else {
       // no_answer — queue position must not change, so updated_at is intentionally NOT set here
-      // whatsapp_reply leads must be promoted to call_queued
+      // whatsapp_reply leads must be promoted to call_queued. Clear any stale future
+      // callback so the lead lands cleanly in the Call Queue and isn't double-counted
+      // in Scheduled Callbacks.
       if (currentQueue === 'whatsapp_reply') {
         updateFields.wa_state = 'call_queued';
+        updateFields.followup_call_at = null;
+        updateFields.wa_human_response_due_at = null;
       }
     }
 

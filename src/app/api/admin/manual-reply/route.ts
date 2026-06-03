@@ -32,6 +32,11 @@ export async function POST(request: Request) {
       .update({
         wa_state: 'call_queued',
         wa_hotness: 'hot', // Assume hot if they replied to manual message
+        // Clear any stale scheduled callback / WhatsApp SLA timer so the promoted lead
+        // lands cleanly in the Call Queue and isn't double-counted in Scheduled Callbacks
+        // or the Active WhatsApp SLA list.
+        followup_call_at: null,
+        wa_human_response_due_at: null,
         zoho_synced_at: null, // Reset to trigger reconcile
         updated_at: new Date().toISOString(),
       })
