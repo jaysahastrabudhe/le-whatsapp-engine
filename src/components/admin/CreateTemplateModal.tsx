@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Plus, Trash2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { X, Plus, Trash2, AlertCircle, CheckCircle2, Image as ImageIcon } from 'lucide-react';
 
 const CATEGORIES = [
   { value: 'UTILITY',        label: 'Utility',        desc: 'Account updates, alerts, transactional' },
@@ -19,6 +19,7 @@ export default function CreateTemplateModal({ onClose }: { onClose: () => void }
   const [body, setBody]         = useState('');
   const [category, setCategory] = useState('UTILITY');
   const [buttons, setButtons]   = useState<string[]>([]);
+  const [mediaUrl, setMediaUrl] = useState('');
   const [loading, setLoading]   = useState(false);
   const [result, setResult]     = useState<{ sid: string; approvalStatus: string } | null>(null);
   const [error, setError]       = useState<string | null>(null);
@@ -46,13 +47,22 @@ export default function CreateTemplateModal({ onClose }: { onClose: () => void }
     setError(null);
     setLoading(true);
 
-    const filledButtons = buttons.map(b => b.trim()).filter(Boolean);
+    const trimmedMedia = mediaUrl.trim();
+    // Media header and quick-reply buttons are mutually exclusive on WhatsApp —
+    // drop buttons when a media header is set.
+    const filledButtons = trimmedMedia ? [] : buttons.map(b => b.trim()).filter(Boolean);
 
     try {
       const res = await fetch('/api/admin/templates/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), body: body.trim(), category, buttons: filledButtons }),
+        body: JSON.stringify({
+          name: name.trim(),
+          body: body.trim(),
+          category,
+          buttons: filledButtons,
+          mediaUrl: trimmedMedia || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Unknown error');
@@ -172,13 +182,37 @@ export default function CreateTemplateModal({ onClose }: { onClose: () => void }
               </p>
             </div>
 
-            {/* Quick-reply buttons (optional) */}
+            {/* Media header (optional) */}
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
+                <ImageIcon size={14} className="text-gray-400" />
+                Media Header URL <span className="text-gray-400 font-normal text-xs">(optional — image, video, or document)</span>
+              </label>
+              <input
+                type="url"
+                value={mediaUrl}
+                onChange={e => setMediaUrl(e.target.value)}
+                placeholder="https://example.com/header-image.jpg"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {mediaUrl.trim() && (
+                <p className="text-xs text-amber-600 mt-1.5 flex items-start gap-1">
+                  <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                  Media headers and quick-reply buttons can’t be combined — buttons will be ignored. Twilio must be able to fetch this URL over https.
+                </p>
+              )}
+              <p className="text-xs text-gray-400 mt-1">
+                Adds an image/video/document header above the message. Leave blank for a text-only template.
+              </p>
+            </div>
+
+            {/* Quick-reply buttons (optional — disabled when a media header is set) */}
+            <div className={mediaUrl.trim() ? 'opacity-40 pointer-events-none' : ''}>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-sm font-medium text-gray-700">
                   Quick Reply Buttons <span className="text-gray-400 font-normal text-xs">(optional, max {MAX_BUTTONS})</span>
                 </label>
-                {buttons.length < MAX_BUTTONS && (
+                {!mediaUrl.trim() && buttons.length < MAX_BUTTONS && (
                   <button
                     type="button"
                     onClick={addButton}

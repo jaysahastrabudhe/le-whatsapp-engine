@@ -4,10 +4,19 @@ import { syncTemplatesToSupabase } from '@/lib/twilio/templates';
 
 export async function POST(request: Request) {
   try {
-    const { name, body, category, buttons, language } = await request.json();
+    const { name, body, category, buttons, language, mediaUrl } = await request.json();
 
     if (!name || !body || !category) {
       return NextResponse.json({ error: 'name, body and category are required' }, { status: 400 });
+    }
+
+    // Validate media URL if provided — Twilio must be able to fetch it over https
+    if (mediaUrl) {
+      let parsed: URL | null = null;
+      try { parsed = new URL(mediaUrl); } catch { /* invalid */ }
+      if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+        return NextResponse.json({ error: 'mediaUrl must be a valid http(s) URL' }, { status: 400 });
+      }
     }
 
     const credentials = Buffer.from(
@@ -24,9 +33,16 @@ export async function POST(request: Request) {
     const variables: Record<string, string> = {};
     varNumbers.forEach((n: string) => { variables[n] = `variable_${n}`; });
 
-    // Build Twilio Content API payload
+    // Build Twilio Content API payload.
+    // Precedence: media header > quick-reply buttons > plain text. WhatsApp does not
+    // allow a media header and quick-reply buttons in the same simple template, so the
+    // UI keeps them mutually exclusive.
     let contentType: Record<string, any>;
-    if (buttons && buttons.length > 0) {
+    if (mediaUrl) {
+      contentType = {
+        'twilio/media': { body, media: [mediaUrl] },
+      };
+    } else if (buttons && buttons.length > 0) {
       contentType = {
         'twilio/quick-reply': {
           body,
