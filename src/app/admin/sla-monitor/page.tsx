@@ -82,6 +82,11 @@ function LeadCell({ lead, noAnswerCount = 0, called = false }: { lead: any; noAn
         )}
       </div>
       <div className="text-xs text-gray-400 font-mono">{lead.phone_normalised}</div>
+      {lead.followup_call_at && (
+        <div className="text-[11px] text-blue-600 font-medium mt-0.5 whitespace-nowrap">
+          📞 Next call: {formatIST(lead.followup_call_at)}
+        </div>
+      )}
     </td>
   );
 }
