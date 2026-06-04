@@ -124,7 +124,7 @@ export default async function SLAMonitorPage() {
   const excludeList = `(${MQL_EXCLUDE_STATUSES.map(s => `"${s}"`).join(',')})`;
   const { data: mqlLeads } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at')
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, call_assigned_to, updated_at, followup_call_at')
     .eq('lead_stage', 'MQL')
     .or(`lead_status.is.null,lead_status.not.in.${excludeList}`)
     .order('updated_at', { ascending: false });
@@ -163,7 +163,7 @@ export default async function SLAMonitorPage() {
   const SYSTEM_LAUNCH = '2026-04-21T00:00:00+05:30';
   const { data: backlogReplied } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, call_assigned_to, lead_status, wa_state')
+    .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, call_assigned_to, lead_status, wa_state, followup_call_at')
     .eq('wa_state', 'replied')
     .not('wa_last_inbound_at', 'is', null)
     .gte('wa_last_inbound_at', SYSTEM_LAUNCH)
@@ -187,7 +187,7 @@ export default async function SLAMonitorPage() {
   // silently vanished. Surface them here so ops can re-engage later.
   const { data: nurture } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, call_assigned_to, lead_status, wa_state')
+    .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, call_assigned_to, lead_status, wa_state, followup_call_at')
     .eq('wa_state', 'wa_nurture')
     .order('wa_last_inbound_at', { ascending: false });
   const nurtureLeads = nurture || [];
@@ -195,7 +195,7 @@ export default async function SLAMonitorPage() {
   // 2. WhatsApp SLAs (Active)
   const { data: active } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, owner_email, wa_hotness, wa_reply_class, lead_status, call_assigned_to, wa_human_response_due_at')
+    .select('id, name, phone_normalised, zoho_lead_id, owner_email, wa_hotness, wa_reply_class, lead_status, call_assigned_to, wa_human_response_due_at, followup_call_at')
     .not('wa_human_response_due_at', 'is', null)
     .not('wa_state', 'in', '("wa_closed","wa_idle","wa_sla_escalated","wa_sla_resolved")')
     .order('wa_human_response_due_at', { ascending: true });
@@ -203,7 +203,7 @@ export default async function SLAMonitorPage() {
   // 3. Escalated
   const { data: escalated } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, owner_email, wa_hotness, wa_reply_class, lead_status, call_assigned_to, updated_at')
+    .select('id, name, phone_normalised, zoho_lead_id, owner_email, wa_hotness, wa_reply_class, lead_status, call_assigned_to, updated_at, followup_call_at')
     .eq('wa_state', 'wa_sla_escalated')
     .order('updated_at', { ascending: false })
     .limit(20);
