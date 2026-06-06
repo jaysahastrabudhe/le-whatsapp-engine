@@ -170,15 +170,15 @@ export default async function SLAMonitorPage() {
 
       <hr className="border-gray-200" />
 
-      {/* ── INBOUND & MANUAL REPLIES (Gargi) ──────────────────────────────── */}
+      {/* ── INBOUND & MANUAL REPLIES (entry: Jonathan · calling: Gargi) ─────── */}
       <section>
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="w-2 h-2 rounded-full bg-emerald-500" />
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
             Inbound &amp; Manual Replies <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{inboundLeads.length}</span>
           </h2>
-          <BoxOwner name="Gargi" color="gray" />
-          <span className="text-xs text-gray-400 ml-1">Inbound WhatsApp + replies Jonathan logs from other channels.</span>
+          <BoxOwner name="Jonathan · entry" color="gray" />
+          <BoxOwner name="Gargi · calling" color="purple" />
         </div>
 
         <div className="mb-4"><ManualReplyForm /></div>
