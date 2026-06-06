@@ -7,8 +7,9 @@ export async function POST(request: Request) {
     const {
       leadId, zohoLeadId, caller, calledAt, contactStatus,
       notes, nextAction, nextActionDate, currentQueue,
-      leadStage, leadStatus,
+      leadStage, leadStatus, channel,
     } = await request.json();
+    const isMessage = channel === 'message';
 
     if (!leadId || !caller || !calledAt || !contactStatus || !nextAction) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -33,27 +34,37 @@ export async function POST(request: Request) {
     // nextAction always drives the state transition; contactStatus is only for the call_log record.
     const updateFields: Record<string, any> = {
       call_assigned_to: caller,
-      updated_at: new Date().toISOString(),
+      // Do NOT touch updated_at for no_answer — it would reshuffle queue position.
+      // updated_at is only set for meaningful state transitions below.
       wa_human_response_due_at: null, // Any call counts as human response — clear WA SLA timer
     };
 
     if (nextAction === 'close_lead') {
       updateFields.wa_state = 'wa_closed';
       updateFields.followup_call_at = null;
+      updateFields.updated_at = new Date().toISOString();
     } else if (nextAction === 'discovery_call') {
       updateFields.wa_state = 'discovery_call';
       updateFields.followup_call_at = null;
+      updateFields.updated_at = new Date().toISOString();
     } else if (nextAction === 'ready_to_fill') {
       updateFields.wa_state = 'wa_sla_resolved';
       updateFields.followup_call_at = null;
+      updateFields.updated_at = new Date().toISOString();
     } else if (nextAction === 'followup_on_date') {
       // Schedule a specific retry date — lead hides until that date
       updateFields.wa_state = currentQueue === 'discovery_call' ? 'discovery_call' : 'call_follow_up';
       updateFields.followup_call_at = nextActionDate;
+      updateFields.updated_at = new Date().toISOString();
     } else {
-      // no_answer (stay in queue) — whatsapp_reply leads must be promoted to call_queued
-      if (currentQueue === 'whatsapp_reply') {
+      // no_answer / message-keep — queue position must not change, so updated_at is
+      // intentionally NOT set here. A *call* no-answer on a whatsapp_reply lead promotes
+      // it to the call queue; a *message* touch is record-only and must leave the lead in
+      // its current box (do not promote, do not change state).
+      if (currentQueue === 'whatsapp_reply' && !isMessage) {
         updateFields.wa_state = 'call_queued';
+        updateFields.followup_call_at = null;
+        updateFields.wa_human_response_due_at = null;
       }
     }
 
@@ -95,7 +106,9 @@ export async function POST(request: Request) {
 
       // 3b. Note writeback (awaited)
       if (notes) {
-        const title = `Call Log: ${contactStatus.replace(/_/g, ' ').toUpperCase()}`;
+        const title = isMessage
+          ? `Message Log: ${caller}`
+          : `Call Log: ${contactStatus.replace(/_/g, ' ').toUpperCase()}`;
         let content = `Caller: ${caller}\nAction: ${nextAction.replace(/_/g, ' ').toUpperCase()}`;
         if (leadStage)  content += `\nLead Stage → ${leadStage}`;
         if (leadStatus) content += `\nLead Status → ${leadStatus}`;

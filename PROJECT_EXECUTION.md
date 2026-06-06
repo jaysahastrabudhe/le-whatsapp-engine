@@ -1,8 +1,8 @@
 # LE WhatsApp Automation — Project Execution Tracker
 **Project:** ZOHO + Twilio WhatsApp Lead Engagement Engine
 **Started:** 23 March 2026
-**Last Updated:** 27 April 2026
-**Status:** 🟢 PHASE 5.6 COMPLETE — Call Log overhaul (no-answer attempt tracking, unified SLA columns, state-transition fix) and Zoho ↔ Supabase stage sync (real-time stage-change webhook closes the MQL drift; reconcile cron retries failed writebacks).
+**Last Updated:** 11 May 2026
+**Status:** 🟢 PHASE 5.7 COMPLETE — Campaign pipeline fixes (staged-contact message logging restored, cooldown bypass for campaigns, parallel enqueue prevents commit timeout); campaign reports now show real data. Twilio billing outage recovered.
 
 > **How to use this file**
 > - Mark tasks `[x]` when done, `[~]` when in progress, `[!]` when blocked
@@ -37,6 +37,7 @@
 | **Phase 5.4 — Pipeline Visual Refinements** | **4** | **4** | **0** | **0** |
 | **Phase 5.5 — Campaign Contacts Staging** | **8** | **8** | **0** | **0** |
 | **Phase 5.6 — Call Log Overhaul + Zoho Stage Sync** | **10** | **10** | **0** | **0** |
+| **Phase 5.7 — Campaign Pipeline Fixes** | **3** | **3** | **0** | **0** |
 | Phase 6 — Next Sprint | 5 | 0 | 0 | 0 |
 | Phase 7 — Future | 5 | 0 | 0 | 0 |
 
@@ -536,6 +537,21 @@
 - `statusProcessor` now propagates `delivered`/`read`/`failed` to `campaign_leads` (was stuck on `sent`).
 - MQL Outreach sort changed to `created_at` asc (stable, no reshuffling on call log).
 - `docs/team-workflow.md` rewritten with full SLA logic + Zoho ↔ Supabase Sync Architecture reference.
+
+---
+
+## 🟢 PHASE 5.7 — CAMPAIGN PIPELINE FIXES (11 May 2026) ✅ COMPLETE
+
+**Trigger:** User reported "no data visible in campaign reports". Investigation revealed campaigns silently failing in two distinct ways. Compounded by a Twilio billing outage on the same day (HTTP 401 / 20003 from insufficient balance).
+
+- [x] **P5.7.1 — Always log outbound messages** (`dispatcher.ts`) — Removed `if (finalLeadId)` guards around `messages.insert` so staged-contact campaign sends (no `lead_id`) now produce DB rows. Without this, Twilio sent the message but our funnel had nothing to count.
+- [x] **P5.7.2 — Campaign sends bypass 2-msg cooldown** (`dispatcher.ts` + `process-queue/route.ts`) — Added `bypassCooldown` option to `DispatchOptions`; process-queue passes `true` for campaign jobs. Cooldown is an organic-flow safety, not appropriate for explicit broadcasts; previously dropped all matched leads silently leaving `campaign_leads.status = pending` forever.
+- [x] **P5.7.3 — Parallel enqueue in campaign commit** (`zoho-upload/commit/route.ts`) — Replaced sequential `for`-loop with `Promise.allSettled` in chunks of 25. Each enqueue is a Redis HTTP roundtrip; 190 sequential = ~19s = too close to Vercel's 60s limit (May 6 campaign hit this and never finished enqueuing).
+
+**Recovery actions performed:**
+- Re-enqueued the 190-lead May 6 "webinar-final-link" campaign (drained at ~20/min post-deploy).
+- Backfilled 640 missing `messages` rows for staged contacts across 4 older campaigns (Webinar-redo, WebinarInvite6msay, webinar-link, webinar-remind) from `campaign_leads.sent_at` snapshots. Reports now have data.
+- Reset 17 leads stuck in `wa_state = first_sent` from the Twilio outage back to `wa_pending` for the pending-sweep to retry.
 
 ---
 

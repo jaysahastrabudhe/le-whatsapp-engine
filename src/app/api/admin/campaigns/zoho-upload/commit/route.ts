@@ -94,31 +94,29 @@ export async function POST(request: Request) {
 
     await supabase.from('campaign_leads').insert(campaignLeadsToInsert);
 
-    // 5. Enqueue messages
+    // 5. Enqueue messages — parallelize in chunks to avoid Vercel function timeouts.
+    // Each enqueue is a Redis HTTP roundtrip (~100ms); sequential takes ~20s for
+    // 190 items and silently truncates on Vercel's 60s limit (this was the cause
+    // of the May 6 campaign sitting at 0/190 — only campaign_leads got inserted,
+    // the enqueue loop never finished).
+    const ENQUEUE_CHUNK = 25;
     let enqueued = 0;
 
-    for (const r of matchedRows) {
-      try {
-        await enqueueCampaignMessage({
-          to:               r.phone,
-          from:             PRIMARY_SENDER,
-          contentSid:       templateSid,
-          templateName,
-          leadId:           r.lead_id,
-          campaignId:       campaign.id,
-          contentVariables: JSON.stringify({ '1': r.name || 'there' }),
-        });
-        enqueued++;
-      } catch (e) {
-        console.error(`[Zoho Upload] Error enqueuing matched ${r.phone}:`, e);
-      }
-    }
+    const matchedPayloads = matchedRows.map((r: any) => ({
+      to:               r.phone,
+      from:             PRIMARY_SENDER,
+      contentSid:       templateSid,
+      templateName,
+      leadId:           r.lead_id,
+      campaignId:       campaign.id,
+      contentVariables: JSON.stringify({ '1': r.name || 'there' }),
+    }));
 
-    for (const r of stagedRows) {
-      const contactId = contactIdMap.get(r.phone);
-      if (!contactId) continue;
-      try {
-        await enqueueCampaignMessage({
+    const stagedPayloads = stagedRows
+      .map((r: any) => {
+        const contactId = contactIdMap.get(r.phone);
+        if (!contactId) return null;
+        return {
           to:               r.phone,
           from:             PRIMARY_SENDER,
           contentSid:       templateSid,
@@ -126,10 +124,19 @@ export async function POST(request: Request) {
           contactId,
           campaignId:       campaign.id,
           contentVariables: JSON.stringify({ '1': r.name || 'there' }),
-        });
-        enqueued++;
-      } catch (e) {
-        console.error(`[Zoho Upload] Error enqueuing staged ${r.phone}:`, e);
+        };
+      })
+      .filter((p: any): p is NonNullable<typeof p> => p !== null);
+
+    const allPayloads = [...matchedPayloads, ...stagedPayloads];
+    for (let i = 0; i < allPayloads.length; i += ENQUEUE_CHUNK) {
+      const chunk = allPayloads.slice(i, i + ENQUEUE_CHUNK);
+      const results = await Promise.allSettled(
+        chunk.map((p) => enqueueCampaignMessage(p)),
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') enqueued++;
+        else console.error('[Zoho Upload] Enqueue failed:', r.reason);
       }
     }
 

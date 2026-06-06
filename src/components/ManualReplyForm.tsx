@@ -16,10 +16,13 @@ const HOTNESS_STYLES: Record<string, string> = {
   cold: 'bg-blue-100 text-blue-700',
 };
 
+const SOURCES = ['Instagram', 'Email', 'Direct WhatsApp', 'Manual Replies'];
+
 export default function ManualReplyForm() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<LeadResult[]>([]);
   const [selected, setSelected] = useState<LeadResult | null>(null);
+  const [source, setSource] = useState(SOURCES[0]);
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -86,11 +89,11 @@ export default function ManualReplyForm() {
       const res = await fetch('/api/admin/manual-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: selected.phone_normalised }),
+        body: JSON.stringify({ phone: selected.phone_normalised, source }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to add to queue');
-      setMessage({ text: `${selected.name || 'Lead'} added to Call Queue.`, type: 'success' });
+      if (!res.ok) throw new Error(data.error || 'Failed to add reply');
+      setMessage({ text: `${selected.name || 'Lead'} added to Gargi's inbound box (${source}).`, type: 'success' });
       setQuery('');
       setSelected(null);
       setResults([]);
@@ -107,9 +110,20 @@ export default function ManualReplyForm() {
   return (
     <div className="bg-white border rounded-lg p-6 shadow-sm border-blue-200">
       <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-1">Manual Reply Entry</h2>
-      <p className="text-xs text-gray-500 mb-4">Someone replied to an old/failed message? Search by name or phone to drop them into the Call Queue.</p>
+      <p className="text-xs text-gray-500 mb-4">Logged a reply from a lead (Instagram, Email, Direct WhatsApp…)? Pick the source and add them to Gargi&rsquo;s inbound box.</p>
 
       <form onSubmit={handleSubmit} className="flex gap-3 items-start">
+        <div className="w-44 shrink-0">
+          <select
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+            aria-label="Reply source"
+          >
+            {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
         <div ref={containerRef} className="relative flex-1">
           <input
             type="text"
@@ -177,7 +191,7 @@ export default function ManualReplyForm() {
           disabled={submitting || !selected}
           className="bg-gray-900 text-white px-5 py-2 rounded-md font-medium text-sm hover:bg-gray-800 transition-colors disabled:opacity-40 whitespace-nowrap"
         >
-          {submitting ? 'Adding…' : 'Add to Queue'}
+          {submitting ? 'Adding…' : 'Add Reply'}
         </button>
       </form>
 

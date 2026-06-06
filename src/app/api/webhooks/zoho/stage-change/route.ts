@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     const { data: existing, error: fetchErr } = await supabase
       .from('leads')
-      .select('id, lead_stage, lead_status')
+      .select('id, lead_stage, lead_status, wa_state')
       .eq('zoho_lead_id', zohoId)
       .maybeSingle();
 
@@ -74,13 +74,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, skipped: 'no_change', zohoId });
     }
 
+    // Detect demotion out of MQL (e.g. MQL → Leads)
+    const isMqlDemotion = existing.lead_stage === 'MQL' && normStage !== null && normStage !== 'MQL';
+
+    // Terminal states a demoted lead may legitimately already be in — leave these alone.
+    const TERMINAL_STATES = ['wa_closed', 'wa_idle', 'wa_sla_resolved'];
+
+    const updatePayload: Record<string, any> = {
+      lead_stage:  normStage,
+      lead_status: normStatus,
+      updated_at:  new Date().toISOString(),
+    };
+
+    // When demoted out of MQL, the lead must disappear from ALL active queues, not just
+    // the call queue. Any non-terminal active state (call_queued, call_follow_up,
+    // discovery_call, replied, wa_hot, first_sent, followup_sent, etc.) gets parked to
+    // wa_idle, and every "still active" marker (scheduled callback + WhatsApp SLA timer)
+    // is cleared so it can't linger in Scheduled Callbacks, Backlog, or the Active WA SLA list.
+    if (isMqlDemotion) {
+      if (!TERMINAL_STATES.includes(existing.wa_state ?? '')) {
+        updatePayload.wa_state = 'wa_idle';
+      }
+      updatePayload.followup_call_at = null;
+      updatePayload.wa_human_response_due_at = null;
+    }
+
     const { error: updateErr } = await supabase
       .from('leads')
-      .update({
-        lead_stage:  normStage,
-        lead_status: normStatus,
-        updated_at:  new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', existing.id);
 
     if (updateErr) {
@@ -88,12 +109,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
-    console.log(`[Zoho Stage Webhook] ${zohoId}: ${existing.lead_stage}/${existing.lead_status} → ${normStage}/${normStatus}`);
+    console.log(
+      `[Zoho Stage Webhook] ${zohoId}: ${existing.lead_stage}/${existing.lead_status} → ${normStage}/${normStatus}` +
+      (isMqlDemotion ? ' [MQL demotion — evicted from call queue]' : '')
+    );
     return NextResponse.json({
       success: true,
       zohoId,
       from: { stage: existing.lead_stage,  status: existing.lead_status },
       to:   { stage: normStage,            status: normStatus },
+      ...(isMqlDemotion && { mqlDemotion: true, queueEvicted: updatePayload.wa_state === 'wa_idle' }),
     });
   } catch (e: any) {
     console.error('[Zoho Stage Webhook] Error:', e.message);

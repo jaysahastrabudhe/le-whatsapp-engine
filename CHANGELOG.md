@@ -5,6 +5,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.9.0] - 2026-06-04 (Queue Sequencing, Template Maker & Lead-Dismissal Hardening)
+
+_Changes by Jay Sahastrabudhe._
+
+### Added
+- **Template maker** (`/admin/templates` → Create Template) — create WhatsApp templates from the admin UI and submit them for Meta approval in one step. Auto-detects `{{1}}`, `{{2}}` variables from the body, supports up to 3 quick-reply buttons, and `UTILITY`/`MARKETING`/`AUTHENTICATION` categories. (`/api/admin/templates/create`)
+- **Static media headers in templates** — optional media-header URL (image / video / document) using Twilio's `twilio/media` content type. Media and quick-reply buttons are mutually exclusive (WhatsApp limitation), enforced in the UI; the URL is validated as https server-side.
+- **Next-call date on the lead card** — each lead card in the SLA monitor now shows `📞 Next call: <date>` under the phone number whenever a callback (`followup_call_at`) is scheduled, across the Call Queue, Scheduled Callbacks, Discovery, and Backlog sections.
+- **"Nurture — Not Now" section** — leads who replied "not now" (`wa_state = wa_nurture`) were an orphan state rendered by no section and silently vanished. They now have a dedicated section so ops can re-engage them later.
+
+### Changed
+- **Call queue ordered by `created_at` (newest first)** — was `updated_at`, which meant logging a "no answer" on an old lead bumped it back to the top of the queue. The "Queued" label now shows `created_at` too. Applies to both the DB order and the combined-list `sortTime` (overdue follow-ups still sort first by their due date, then fresh `call_queued` leads newest-first).
+- **MQL Outreach ordered by `updated_at` (newest first)** — leads recently synced/promoted to MQL from Zoho now surface at the top instead of being buried.
+- **`no_answer` call logs no longer bump `updated_at`** — queue position is now stable across failed call attempts. `updated_at` is only written on meaningful state transitions (close / discovery / ready-to-fill / scheduled follow-up).
+
+### Fixed
+- **Twilio template create rejected with `20001: language must not be null`** — the Content API create payload now includes `language` (defaults to `en`).
+- **6 HIGH lead-dismissal bugs** (found via an adversarially-verified multi-agent bug-hunt — 13 confirmed, 7 refuted):
+  - `no_answer` on a Scheduled Callback double-counted the lead into the Call Queue. The Scheduled section now passes `queueType = call_queue` (not `whatsapp_reply`), and the backend promotion path clears `followup_call_at` + `wa_human_response_due_at`.
+  - **MQL demotion under-evicted** — only call-queue states were parked, leaving `replied` / `wa_hot` / `first_sent` leads in Backlog, re-engagement, and the Active WhatsApp SLA list. Any non-terminal state is now parked to `wa_idle`, and both the scheduled-callback and WhatsApp SLA timers are cleared on demotion.
+  - **Active WhatsApp SLA query** now excludes `wa_idle`, so dismissed leads stop lingering.
+  - **`manual-reply` promotion** to `call_queued` now clears stale `followup_call_at` + `wa_human_response_due_at` to prevent duplicate / wrong-section visibility.
+
+---
+
+## [5.8.0] - 2026-05-23 (SLA Monitor Enrichment — Backlog, Caller Notes, Called Tag)
+
+_Changes by Jay Sahastrabudhe._
+
+### Added
+- **Backlog Calls section** — surfaces (A) leads who replied on WhatsApp after the Apr 21 launch but were never called back, and (B) scheduled follow-ups missed by 3+ days. Gives ops a recovery view for leads that slipped through the active queues.
+- **Last-caller notes on hover** — every SLA monitor section shows the most recent caller's note inline, fully visible on hover via a `NoteTooltip` popup (`position: fixed` so it escapes the table's `overflow: hidden`). Saves vertical space while keeping context one hover away.
+- **"Called" tag on lead names** — a green `Called` badge next to every lead that has any call history, across all SLA monitor sections. Built from a single global `call_logs` fetch so it works regardless of the lead's current state.
+
+### Changed
+- **SLA coverage extended to all free-text replies** — `inboundProcessor` now gives `other`-class replies (`wa_state = replied`) a 4-hour SLA deadline (vs 2h for interested/fee-question), so no replied lead sits without a response timer.
+- **"Called" tag reliability** — `call_logs` are fetched globally (not filtered to the current page's lead IDs), so leads whose state changed after being called still show the badge.
+
+### Fixed
+- **MQL exclude list** — added `Attempted to Contact` to `MQL_EXCLUDE_STATUSES` so those leads no longer leak into the MQL outreach queue (they belong in the call queue).
+
+## [5.7.0] - 2026-05-11 (Campaign Pipeline Fixes — Reports Restored)
+
+### Fixed
+- **Staged-contact campaign sends were silently unlogged** — `dispatcher.ts` only inserted a `messages` row when `finalLeadId` was truthy. For campaigns targeting Zoho Contacts (no `lead_id`), Twilio actually sent the message but our `messages` table got no row → campaign reports showed nothing because the funnel/delivery metrics had no data to compute on. Now always inserts with `lead_id = null` and `phone_normalised` populated. Backfilled 640 missing rows across the 4 older campaigns (Webinar-redo, WebinarInvite6msay, webinar-link, webinar-remind).
+- **Matched leads in campaigns silently dropped by 2-msg cooldown** — `dispatcher.ts` cooldown returned `null` for any lead with ≥2 outbound messages since last inbound, and the cron treated `null` as "didn't send" leaving `campaign_leads.status = pending` forever with no log. Added `bypassCooldown` flag to `DispatchOptions`; process-queue passes `true` for campaign jobs (broadcasts are explicit, not subject to organic-flow cooldown).
+- **Campaign commit timed out before enqueuing all leads** — `commit/route.ts` enqueued sequentially via Redis HTTP roundtrips (~100ms each × 190 items = ~19s, very close to Vercel's 60s limit). The May 6 "webinar-final-link" campaign got `campaign_leads` inserted but only some made it into the queue. Replaced sequential `for` loops with `Promise.allSettled` in chunks of 25 — drops total enqueue time to ~2s.
+
+### Recovery
+- **Re-enqueued the 190-lead May 6 campaign** ("webinar final link") — sends draining at ~20/min, completing within minutes of deploy. Now correctly logs both matched and staged sends, and `campaign_leads` advances through `pending → sent → delivered → read`.
+- **Re-queued 17 leads stuck in `first_sent` from the Twilio billing outage** — reset `wa_state = wa_pending` so the pending-sweep retries them on the next cron tick.
+
+### Operational notes (Twilio billing outage)
+- Twilio API returned `HTTP 401 / code 20003` for ~6 hours due to insufficient account balance. Account auto-reactivated on top-up — no env or code changes required. 17 organic welcome sends and most of one campaign attempt failed during the window. All recovered via the re-queue paths above.
+
+---
+
 ## [5.6.0] - 2026-04-27 (Call Log Overhaul + Zoho Stage Sync)
 
 ### Added
