@@ -14,21 +14,23 @@ const SYSTEM_LAUNCH = '2026-04-21T00:00:00+05:30';
 export default async function BacklogPage() {
   const now = Date.now();
 
-  // Backlog A: replied (post-launch) but never called
+  // Backlog A: replied (post-launch) but never called — the AGING view of the inbound
+  // box (includes manual replies). Overlaps intentionally with the live Inbound box.
   const { data: backlogReplied } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, lead_status, wa_state, followup_call_at')
-    .eq('wa_state', 'replied')
+    .in('wa_state', ['replied', 'replied_manual'])
     .not('wa_last_inbound_at', 'is', null)
     .gte('wa_last_inbound_at', SYSTEM_LAUNCH)
     .order('wa_last_inbound_at', { ascending: true });
 
-  // Backlog B: scheduled follow-ups 3+ days overdue
+  // Backlog B: scheduled call follow-ups 3+ days overdue. Discovery callbacks are owned
+  // by Gargi's Discovery box (any age), so they're excluded here to avoid double-listing.
   const threeDaysAgo = new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString();
   const { data: backlogOverdue } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, followup_call_at, wa_reply_class, wa_hotness, lead_status, wa_state')
-    .in('wa_state', ['call_follow_up', 'discovery_call'])
+    .eq('wa_state', 'call_follow_up')
     .not('followup_call_at', 'is', null)
     .lt('followup_call_at', threeDaysAgo)
     .order('followup_call_at', { ascending: true });
@@ -112,7 +114,7 @@ export default async function BacklogPage() {
       {/* Backlog A */}
       <section>
         <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-rose-500" /> WA Replied — No Call Made
+          <span className="w-2 h-2 rounded-full bg-rose-500" /> WA Replied — Aging (no call yet)
           <span className="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full text-xs">{backlogRepliedLeads.length}</span>
         </h2>
         {backlogRepliedLeads.length === 0 ? (

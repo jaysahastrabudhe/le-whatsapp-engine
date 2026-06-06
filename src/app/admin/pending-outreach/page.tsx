@@ -29,7 +29,8 @@ export default async function PendingOutreachPage() {
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, owner_email, wa_hotness, wa_reply_class, lead_status, wa_human_response_due_at, followup_call_at')
     .not('wa_human_response_due_at', 'is', null)
-    .not('wa_state', 'in', '("wa_closed","wa_idle","wa_sla_escalated","wa_sla_resolved","replied")')
+    // NULL-safe exclusion: NOT IN drops NULL rows, so include them explicitly via .or
+    .or('wa_state.is.null,wa_state.not.in.("wa_closed","wa_idle","wa_sla_escalated","wa_sla_resolved","replied","replied_manual")')
     .order('wa_human_response_due_at', { ascending: true });
 
   const { data: callLogData } = await supabase

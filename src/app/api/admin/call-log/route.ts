@@ -57,11 +57,11 @@ export async function POST(request: Request) {
       updateFields.followup_call_at = nextActionDate;
       updateFields.updated_at = new Date().toISOString();
     } else {
-      // no_answer — queue position must not change, so updated_at is intentionally NOT set here
-      // whatsapp_reply leads must be promoted to call_queued. Clear any stale future
-      // callback so the lead lands cleanly in the Call Queue and isn't double-counted
-      // in Scheduled Callbacks.
-      if (currentQueue === 'whatsapp_reply') {
+      // no_answer / message-keep — queue position must not change, so updated_at is
+      // intentionally NOT set here. A *call* no-answer on a whatsapp_reply lead promotes
+      // it to the call queue; a *message* touch is record-only and must leave the lead in
+      // its current box (do not promote, do not change state).
+      if (currentQueue === 'whatsapp_reply' && !isMessage) {
         updateFields.wa_state = 'call_queued';
         updateFields.followup_call_at = null;
         updateFields.wa_human_response_due_at = null;

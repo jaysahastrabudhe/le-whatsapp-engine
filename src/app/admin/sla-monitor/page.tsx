@@ -32,7 +32,7 @@ export default async function SLAMonitorPage() {
   const { data: inbound } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, lead_status, wa_hotness, wa_reply_class, wa_last_inbound_at, followup_call_at')
-    .eq('wa_state', 'replied')
+    .in('wa_state', ['replied', 'replied_manual'])
     .order('wa_last_inbound_at', { ascending: false, nullsFirst: false })
     .limit(100);
   const inboundLeads = inbound || [];
@@ -239,9 +239,8 @@ export default async function SLAMonitorPage() {
                   <LeadStatusCell status={lead.lead_status} />
                   <HotnessCell hotness={lead.wa_hotness} />
                   <td className={TH + ' text-xs text-gray-500'}>
-                    {lead.followup_call_at
-                      ? <span className="text-amber-600">Callback {formatIST(lead.followup_call_at)}</span>
-                      : formatIST(lead.updated_at)}
+                    {/* Callback date is shown inline in the lead cell — avoid duplicating it here */}
+                    Updated {formatIST(lead.updated_at)}
                     <MaybeNote note={lastNoteMap[lead.id]} />
                   </td>
                   <td className={TH + ' text-right'}>

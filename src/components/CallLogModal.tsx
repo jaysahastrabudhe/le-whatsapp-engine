@@ -56,13 +56,19 @@ export default function CallLogModal({
   const [leadStage, setLeadStage] = useState('');
   const [leadStatus, setLeadStatus] = useState('');
 
-  // Auto-populate Zoho fields when next action or contact status changes
+  // Auto-populate Zoho fields when next action or contact status changes.
+  // A logged message with "Keep in box" (no_answer) is a pure record-only touch —
+  // it must NOT rewrite Lead_Stage/Lead_Status (that would evict the lead from its box).
   useEffect(() => {
-    const effectiveAction = nextAction === 'no_answer' ? 'no_answer' : nextAction;
-    const defaults = getZohoDefaults(queueType, effectiveAction);
+    if (isMessage && nextAction === 'no_answer') {
+      setLeadStage('');
+      setLeadStatus('');
+      return;
+    }
+    const defaults = getZohoDefaults(queueType, nextAction);
     setLeadStage(defaults.stage);
     setLeadStatus(defaults.status);
-  }, [nextAction, queueType]);
+  }, [nextAction, queueType, isMessage]);
 
   const handleContactStatusChange = (val: string) => {
     setContactStatus(val);
@@ -202,7 +208,7 @@ export default function CallLogModal({
                 <>
                   <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
                     <input type="radio" name="action" value="no_answer" checked={nextAction === 'no_answer'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-medium text-gray-800">Keep in MQL
+                    <span className="text-sm font-medium text-gray-800">{queueType === 'mql_outreach' ? 'Keep in MQL' : 'Keep in box'}
                       <span className="ml-1.5 text-xs text-gray-500 font-normal">(stays in box, position unchanged)</span>
                     </span>
                   </label>

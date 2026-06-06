@@ -28,12 +28,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Lead not found in Supabase database. Are they synced?' }, { status: 404 });
     }
 
-    // Route the reply into Gargi's "Inbound & Manual Replies" box (wa_state = 'replied').
+    // Route the reply into Gargi's "Inbound & Manual Replies" box. We use a DISTINCT
+    // state 'replied_manual' (not 'replied') so the re-engagement cron — which targets
+    // wa_state='replied' to auto-send a WhatsApp template — never messages a lead who
+    // actually replied on Instagram / Email / etc. A human (Gargi) owns these.
     const nowIso = new Date().toISOString();
     const { error: updateError } = await supabase
       .from('leads')
       .update({
-        wa_state: 'replied',
+        wa_state: 'replied_manual',
         wa_hotness: 'hot', // Assume hot if they replied
         wa_last_inbound_at: nowIso, // surfaces in the inbound feed, sorted by recency
         followup_call_at: null,      // clear any stale scheduled callback
