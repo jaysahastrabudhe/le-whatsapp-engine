@@ -30,7 +30,31 @@ export default function AdminDashboardPage() {
               </svg>
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-red-600 transition-colors">SLA Escalation Monitor</h3>
-            <p className="text-gray-500 text-sm">Track hot leads awaiting a human response. Visualizes ticking and breached SLA deadlines.</p>
+            <p className="text-gray-500 text-sm">Owned boxes: MQL (Sharjeel), Inbound &amp; Manual Replies (Gargi), Discovery (Gargi).</p>
+          </div>
+        </Link>
+
+        <Link href="/admin/pending-outreach" className="group block">
+          <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md transition-all hover:border-blue-400">
+            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5h12M3 12h12M3 19h12M17 8l4 4-4 4" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">Pending Outreach</h3>
+            <p className="text-gray-500 text-sm">The call queue plus active WhatsApp response SLAs — leads waiting to be called.</p>
+          </div>
+        </Link>
+
+        <Link href="/admin/backlog" className="group block">
+          <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md transition-all hover:border-rose-400">
+            <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-rose-600 transition-colors">Backlog &amp; Escalations</h3>
+            <p className="text-gray-500 text-sm">Replies never called, missed follow-ups, escalations, and nurture leads.</p>
           </div>
         </Link>
 

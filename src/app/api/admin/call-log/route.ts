@@ -7,8 +7,9 @@ export async function POST(request: Request) {
     const {
       leadId, zohoLeadId, caller, calledAt, contactStatus,
       notes, nextAction, nextActionDate, currentQueue,
-      leadStage, leadStatus,
+      leadStage, leadStatus, channel,
     } = await request.json();
+    const isMessage = channel === 'message';
 
     if (!leadId || !caller || !calledAt || !contactStatus || !nextAction) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -105,7 +106,9 @@ export async function POST(request: Request) {
 
       // 3b. Note writeback (awaited)
       if (notes) {
-        const title = `Call Log: ${contactStatus.replace(/_/g, ' ').toUpperCase()}`;
+        const title = isMessage
+          ? `Message Log: ${caller}`
+          : `Call Log: ${contactStatus.replace(/_/g, ' ').toUpperCase()}`;
         let content = `Caller: ${caller}\nAction: ${nextAction.replace(/_/g, ' ').toUpperCase()}`;
         if (leadStage)  content += `\nLead Stage → ${leadStage}`;
         if (leadStatus) content += `\nLead Status → ${leadStatus}`;

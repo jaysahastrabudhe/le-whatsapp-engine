@@ -27,25 +27,30 @@ function getZohoDefaults(queue: QueueType, action: string): { stage: string; sta
 }
 
 export default function CallLogModal({
-  leadId, zohoLeadId, leadName, queueType, noAnswerCount = 0, onClose, onSuccess,
+  leadId, zohoLeadId, leadName, queueType, noAnswerCount = 0, channel = 'call',
+  defaultCaller, onClose, onSuccess,
 }: {
   leadId: string;
   zohoLeadId: string | null;
   leadName: string;
   queueType: QueueType;
   noAnswerCount?: number;
+  channel?: 'call' | 'message';
+  defaultCaller?: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const isMessage = channel === 'message';
   const MAX_ATTEMPTS = 3;
   const overAttemptLimit = noAnswerCount >= MAX_ATTEMPTS;
 
   const [loading, setLoading] = useState(false);
-  const [caller, setCaller] = useState(TEAM_MEMBERS[0]);
-  const [contactStatus, setContactStatus] = useState('answered');
+  const [caller, setCaller] = useState(defaultCaller && TEAM_MEMBERS.includes(defaultCaller) ? defaultCaller : TEAM_MEMBERS[0]);
+  // For a logged message there is no "answered/no answer" — it's a one-way touch.
+  const [contactStatus, setContactStatus] = useState(isMessage ? 'message_sent' : 'answered');
   const [notes, setNotes] = useState('');
   const [nextAction, setNextAction] = useState(
-    queueType === 'discovery_call' ? 'ready_to_fill' : 'discovery_call'
+    isMessage ? 'no_answer' : (queueType === 'discovery_call' ? 'ready_to_fill' : 'discovery_call')
   );
   const [nextActionDate, setNextActionDate] = useState('');
   const [leadStage, setLeadStage] = useState('');
@@ -84,7 +89,7 @@ export default function CallLogModal({
         body: JSON.stringify({
           leadId, zohoLeadId, caller,
           calledAt: new Date().toISOString(),
-          contactStatus, notes, nextAction,
+          contactStatus, notes, nextAction, channel,
           nextActionDate: nextAction === 'followup_on_date' ? new Date(nextActionDate).toISOString() : null,
           currentQueue: queueType,
           leadStage:  leadStage  || null,
@@ -116,7 +121,7 @@ export default function CallLogModal({
         <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50 sticky top-0">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-gray-900">Log Call: {leadName}</h2>
+              <h2 className="text-lg font-bold text-gray-900">{isMessage ? 'Log Message' : 'Log Call'}: {leadName}</h2>
               {noAnswerCount > 0 && (
                 <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                   overAttemptLimit
@@ -148,7 +153,7 @@ export default function CallLogModal({
               </select>
             </div>
 
-            {queueType !== 'discovery_call' && (
+            {!isMessage && queueType !== 'discovery_call' && (
               <div className="space-y-1.5">
                 <label className="text-sm font-semibold text-gray-700">Contact Status</label>
                 <select value={contactStatus} onChange={e => handleContactStatusChange(e.target.value)}
@@ -181,10 +186,10 @@ export default function CallLogModal({
           {/* Notes */}
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-gray-700">
-              Call Notes <span className="text-gray-400 font-normal">(synced to Zoho)</span>
+              {isMessage ? 'Message Notes' : 'Call Notes'} <span className="text-gray-400 font-normal">(synced to Zoho)</span>
             </label>
             <textarea required rows={3} value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="What did you discuss?"
+              placeholder={isMessage ? 'What did you message them? Their reply, if any?' : 'What did you discuss?'}
               className="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
           </div>
 
@@ -192,8 +197,38 @@ export default function CallLogModal({
           <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg space-y-3">
             <label className="text-sm font-bold text-blue-900">Next Action</label>
             <div className="space-y-2">
+              {/* Message-touch options (record-only) */}
+              {isMessage && (
+                <>
+                  <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
+                    <input type="radio" name="action" value="no_answer" checked={nextAction === 'no_answer'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-medium text-gray-800">Keep in MQL
+                      <span className="ml-1.5 text-xs text-gray-500 font-normal">(stays in box, position unchanged)</span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
+                    <input type="radio" name="action" value="discovery_call" checked={nextAction === 'discovery_call'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-medium text-gray-800">Set up Discovery Call
+                      <span className="ml-1.5 text-xs text-blue-600 font-normal">(moves to Discovery · Zoho: SQL)</span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
+                    <input type="radio" name="action" value="followup_on_date" checked={nextAction === 'followup_on_date'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-medium text-gray-800">Schedule follow-up
+                      <span className="ml-1.5 text-xs text-blue-600 font-normal">(set a callback date)</span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-3 p-2 hover:bg-red-50 rounded cursor-pointer">
+                    <input type="radio" name="action" value="close_lead" checked={nextAction === 'close_lead'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-red-500" />
+                    <span className="text-sm font-medium text-gray-700">Remove from SLA
+                      <span className="ml-1.5 text-xs text-red-500 font-normal">(closes lead · Zoho: Lead / Not Qualified)</span>
+                    </span>
+                  </label>
+                </>
+              )}
+
               {/* Discovery Call — all queues except already in discovery */}
-              {queueType !== 'discovery_call' && contactStatus !== 'no_answer' && (
+              {!isMessage && queueType !== 'discovery_call' && contactStatus !== 'no_answer' && (
                 <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
                   <input type="radio" name="action" value="discovery_call" checked={nextAction === 'discovery_call'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
                   <span className="text-sm font-medium text-gray-800">Set up Discovery Call
@@ -203,7 +238,7 @@ export default function CallLogModal({
               )}
 
               {/* Ready to fill — discovery queue only */}
-              {queueType === 'discovery_call' && (
+              {!isMessage && queueType === 'discovery_call' && (
                 <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
                   <input type="radio" name="action" value="ready_to_fill" checked={nextAction === 'ready_to_fill'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
                   <span className="text-sm font-medium text-gray-800">✅ Ready to Fill Form
@@ -213,7 +248,7 @@ export default function CallLogModal({
               )}
 
               {/* Follow up later */}
-              {contactStatus !== 'no_answer' && (
+              {!isMessage && contactStatus !== 'no_answer' && (
                 <label className="flex items-center gap-3 p-2 hover:bg-blue-100 rounded cursor-pointer">
                   <input type="radio" name="action" value="followup_on_date" checked={nextAction === 'followup_on_date'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-blue-600" />
                   <span className="text-sm font-medium text-gray-800">Follow up later</span>
@@ -221,7 +256,7 @@ export default function CallLogModal({
               )}
 
               {/* Close / disqualify — all queues */}
-              {contactStatus !== 'no_answer' && (
+              {!isMessage && contactStatus !== 'no_answer' && (
                 <label className="flex items-center gap-3 p-2 hover:bg-red-50 rounded cursor-pointer">
                   <input type="radio" name="action" value="close_lead" checked={nextAction === 'close_lead'} onChange={e => setNextAction(e.target.value)} className="w-4 h-4 text-red-500" />
                   <span className="text-sm font-medium text-gray-700">Remove from SLA
@@ -302,7 +337,7 @@ export default function CallLogModal({
             </button>
             <button type="submit" disabled={loading}
               className="flex-1 py-2.5 bg-gray-900 text-white font-semibold rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50">
-              {loading ? 'Saving to Zoho…' : 'Log & Update'}
+              {loading ? 'Saving to Zoho…' : (isMessage ? 'Log Message' : 'Log & Update')}
             </button>
           </div>
         </form>
