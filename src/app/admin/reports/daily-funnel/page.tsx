@@ -74,12 +74,36 @@ export default async function DailyFunnelReportPage({ searchParams }: { searchPa
     .from('messages').select('*', { count: 'exact', head: true })
     .eq('direction', 'inbound').gte('sent_at', start).lte('sent_at', end);
 
-  // Jay — current stage funnel snapshot
-  const stageCounts: Record<string, number> = {};
-  for (const stage of FUNNEL_STAGES) {
-    const { count } = await supabase.from('leads').select('*', { count: 'exact', head: true }).eq('lead_stage', stage);
-    stageCounts[stage] = count ?? 0;
-  }
+  // Jay — current funnel snapshot, by EFFECTIVE stage.
+  // lead_stage in Zoho isn't advanced when a lead replies, so a literal lead_stage='MQL'
+  // count includes everyone who has since replied/engaged. We derive the real stage from
+  // wa_state the same way the SLA-monitor boxes do: replied → MQL+, manual → MQL++,
+  // discovery → MQL+++, resolved → SQL. So "MQL" here means genuinely un-engaged MQLs only.
+  const headCount = async (q: any) => (await q).count ?? 0;
+  const stageCounts: Record<string, number> = {
+    'MQL': await headCount(
+      supabase.from('leads').select('*', { count: 'exact', head: true })
+        .eq('lead_stage', 'MQL')
+        .or('lead_status.is.null,lead_status.not.in.("Junk Lead","Lost Lead","Not Qualified")')
+        .or('wa_state.is.null,wa_state.not.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture","call_queued","call_follow_up","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")')
+    ),
+    'MQL+': await headCount(
+      supabase.from('leads').select('*', { count: 'exact', head: true })
+        .or('lead_stage.eq."MQL+",wa_state.in.("replied","wa_sla_escalated","wa_hot","wa_nurture")')
+    ),
+    'MQL++': await headCount(
+      supabase.from('leads').select('*', { count: 'exact', head: true })
+        .or('lead_stage.eq."MQL++",wa_state.eq.replied_manual')
+    ),
+    'MQL+++': await headCount(
+      supabase.from('leads').select('*', { count: 'exact', head: true })
+        .or('lead_stage.eq."MQL+++",wa_state.eq.discovery_call')
+    ),
+    'SQL': await headCount(
+      supabase.from('leads').select('*', { count: 'exact', head: true })
+        .or('lead_stage.eq.SQL,wa_state.eq.wa_sla_resolved')
+    ),
+  };
 
   const Stat = ({ label, value, tone = 'gray' }: { label: string; value: number | string; tone?: string }) => {
     const tones: Record<string, string> = {
