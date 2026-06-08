@@ -2,8 +2,8 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import CallLogWrapper from '@/components/CallLogWrapper';
 import {
-  TH, PAGE_SIZE, formatIST, buildLogMaps,
-  MaybeNote, Pager, LeadCell, LeadStatusCell, HotnessCell,
+  TH, PAGE_SIZE, formatIST, buildLogMaps, istDayBounds,
+  MaybeNote, Pager, DateFilter, LeadCell, LeadStatusCell, HotnessCell,
 } from '@/components/admin/leadCells';
 import { ChevronLeft } from 'lucide-react';
 
@@ -15,6 +15,8 @@ const SYSTEM_LAUNCH = '2026-04-21T00:00:00+05:30';
 export default async function BacklogPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
   const now = Date.now();
+  const dateFilter = sp.date;
+  const day = istDayBounds(dateFilter);
   const pageOf = (key: string) => Math.max(1, parseInt(sp[key] || '1') || 1);
   const rangeFor = (p: number) => [(p - 1) * PAGE_SIZE, (p - 1) * PAGE_SIZE + PAGE_SIZE - 1] as const;
   const aPage = pageOf('a_page');
@@ -23,32 +25,38 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
 
   // Backlog A: replied (post-launch) but never called — the AGING view of the inbound
   // box (includes manual replies). Overlaps intentionally with the live Inbound box.
-  const { data: backlogReplied, count: aCount } = await supabase
+  let aQuery = supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, lead_status, wa_state, followup_call_at', { count: 'exact' })
     .in('wa_state', ['replied', 'replied_manual'])
     .not('wa_last_inbound_at', 'is', null)
-    .gte('wa_last_inbound_at', SYSTEM_LAUNCH)
+    .gte('wa_last_inbound_at', day ? day.start : SYSTEM_LAUNCH);
+  if (day) aQuery = aQuery.lte('wa_last_inbound_at', day.end);
+  const { data: backlogReplied, count: aCount } = await aQuery
     .order('wa_last_inbound_at', { ascending: true })
     .range(...rangeFor(aPage));
 
   // Backlog B: scheduled call follow-ups 3+ days overdue. Discovery callbacks are owned
   // by Gargi's Discovery box (any age), so they're excluded here to avoid double-listing.
   const threeDaysAgo = new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: backlogOverdue, count: bCount } = await supabase
+  let bQuery = supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, followup_call_at, wa_reply_class, wa_hotness, lead_status, wa_state', { count: 'exact' })
     .eq('wa_state', 'call_follow_up')
     .not('followup_call_at', 'is', null)
-    .lt('followup_call_at', threeDaysAgo)
+    .lt('followup_call_at', threeDaysAgo);
+  if (day) bQuery = bQuery.gte('followup_call_at', day.start).lte('followup_call_at', day.end);
+  const { data: backlogOverdue, count: bCount } = await bQuery
     .order('followup_call_at', { ascending: true })
     .range(...rangeFor(bPage));
 
   // Nurture (soft "not now")
-  const { data: nurture, count: nCount } = await supabase
+  let nQuery = supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, wa_last_inbound_at, wa_reply_class, wa_hotness, lead_status, followup_call_at', { count: 'exact' })
-    .eq('wa_state', 'wa_nurture')
+    .eq('wa_state', 'wa_nurture');
+  if (day) nQuery = nQuery.gte('wa_last_inbound_at', day.start).lte('wa_last_inbound_at', day.end);
+  const { data: nurture, count: nCount } = await nQuery
     .order('wa_last_inbound_at', { ascending: false })
     .range(...rangeFor(nPage));
 
@@ -90,12 +98,15 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8">
-      <div>
-        <Link href="/admin/sla-monitor" className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 mb-2">
-          <ChevronLeft size={14} /> SLA Monitor
-        </Link>
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Backlog</h1>
-        <p className="text-sm text-gray-500 mt-1">Leads that slipped through — aging replies never called, missed follow-ups, and nurture.</p>
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <Link href="/admin/sla-monitor" className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 mb-2">
+            <ChevronLeft size={14} /> SLA Monitor
+          </Link>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Backlog</h1>
+          <p className="text-sm text-gray-500 mt-1">Leads that slipped through — aging replies never called, missed follow-ups, and nurture.</p>
+        </div>
+        <DateFilter basePath={BASE} date={dateFilter} />
       </div>
 
       {/* Backlog A */}

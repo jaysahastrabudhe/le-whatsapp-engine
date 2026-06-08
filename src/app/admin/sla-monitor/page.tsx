@@ -4,8 +4,8 @@ import ManualReplyForm from '@/components/ManualReplyForm';
 import CallLogWrapper from '@/components/CallLogWrapper';
 import TriggerCronButton from '@/components/TriggerCronButton';
 import {
-  TH, PAGE_SIZE, formatIST, buildLogMaps,
-  MaybeNote, BoxOwner, Pager, LeadCell, LeadStatusCell, HotnessCell,
+  TH, PAGE_SIZE, formatIST, buildLogMaps, istDayBounds,
+  MaybeNote, BoxOwner, Pager, DateFilter, LeadCell, LeadStatusCell, HotnessCell,
 } from '@/components/admin/leadCells';
 import MoveStageSelect from '@/components/admin/MoveStageSelect';
 import { ChevronRight } from 'lucide-react';
@@ -19,6 +19,8 @@ const HEADERS = ['Lead', 'Lead Status', 'Hotness', 'Context', 'Stage', 'Action']
 export default async function SLAMonitorPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
   const nowIso = new Date().toISOString();
+  const dateFilter = sp.date;                 // YYYY-MM-DD (IST) or undefined = all dates
+  const day = istDayBounds(dateFilter);       // {start,end} or null
   const pageOf = (key: string) => Math.max(1, parseInt(sp[key] || '1') || 1);
   const mqlPage = pageOf('mql_page');
   const inboundPage = pageOf('inbound_page');
@@ -29,7 +31,7 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
   // Include rows where lead_status IS NULL — PostgreSQL NOT IN drops NULLs otherwise.
   const MQL_EXCLUDE_STATUSES = ['Contacted', 'Junk Lead', 'Lost Lead', 'Not Qualified', 'Attempted to Contact'];
   const excludeList = `(${MQL_EXCLUDE_STATUSES.map(s => `"${s}"`).join(',')})`;
-  const { data: mqlLeads, count: mqlCount } = await supabase
+  let mqlQuery = supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at', { count: 'exact' })
     .eq('lead_stage', 'MQL')
@@ -37,7 +39,9 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
     // Exclude leads that have already engaged/advanced (replied, hot, queued, scheduled,
     // closed, etc.) — they belong in Gargi's inbound box, Pending Outreach, or are done.
     // Null-safe (NOT IN drops NULLs) so MQL leads with no wa_state still show.
-    .or('wa_state.is.null,wa_state.not.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture","call_queued","call_follow_up","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")')
+    .or('wa_state.is.null,wa_state.not.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture","call_queued","call_follow_up","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")');
+  if (day) mqlQuery = mqlQuery.gte('updated_at', day.start).lte('updated_at', day.end);
+  const { data: mqlLeads, count: mqlCount } = await mqlQuery
     .order('updated_at', { ascending: false })
     .range(...rangeFor(mqlPage));
   const mqlOutreachLeads = mqlLeads || [];
@@ -49,10 +53,12 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
   // 'replied_manual'; genuine inbound WhatsApp replies are 'replied'; SLA-escalated
   // inbound leads ('wa_sla_escalated') are also just inbound messages, so they live here
   // too (the standalone Escalated section was removed).
-  const { data: inbound, count: inboundCount } = await supabase
+  let inboundQuery = supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, wa_last_inbound_at, followup_call_at, wa_state', { count: 'exact' })
-    .or('lead_stage.in.("MQL+","MQL++"),wa_state.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture")')
+    .or('lead_stage.in.("MQL+","MQL++"),wa_state.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture")');
+  if (day) inboundQuery = inboundQuery.gte('wa_last_inbound_at', day.start).lte('wa_last_inbound_at', day.end);
+  const { data: inbound, count: inboundCount } = await inboundQuery
     .order('wa_last_inbound_at', { ascending: false, nullsFirst: false })
     .range(...rangeFor(inboundPage));
   const inboundLeads = inbound || [];
@@ -75,24 +81,24 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
   // ── Discovery Call Queue (owner: Gargi) ─────────────────────────────────
   // Due now = no callback scheduled OR callback time has passed (filtered in SQL so
   // pagination counts are correct).
-  const { data: discovery, count: discCount } = await supabase
+  let discQuery = supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at, wa_state', { count: 'exact' })
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, created_at, followup_call_at, wa_state', { count: 'exact' })
     .or('lead_stage.eq."MQL+++",wa_state.eq.discovery_call')
-    .or(`followup_call_at.is.null,followup_call_at.lte.${nowIso}`)
+    .or(`followup_call_at.is.null,followup_call_at.lte.${nowIso}`);
+  if (day) discQuery = discQuery.gte('created_at', day.start).lte('created_at', day.end);
+  const { data: discovery, count: discCount } = await discQuery
     .order('created_at', { ascending: false })
     .range(...rangeFor(discPage));
   const discoveryQueueLeads = discovery || [];
 
-  // ── Jonathan's entry station — manual replies entered today (IST) ────────
-  const istDayStart = new Date(
-    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T00:00:00+05:30'
-  ).toISOString();
+  // ── Jonathan's entry station — manual replies entered on the selected day (IST) ──
+  const entryDay = day ?? istDayBounds(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }))!;
   const { data: todayManual } = await supabase
     .from('lead_events')
     .select('lead_id, payload, created_at')
     .eq('event_type', 'manual_reply')
-    .gte('created_at', istDayStart)
+    .gte('created_at', entryDay.start).lte('created_at', entryDay.end)
     .order('created_at', { ascending: false });
   const todayManualEvents = todayManual || [];
   const manualBySource: Record<string, number> = {};
@@ -134,7 +140,8 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
             Owned boxes — MQL (Sharjeel), Manual Reply Entry (Jonathan), Inbound &amp; Calls (Gargi), Discovery (Gargi).
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <DateFilter basePath={BASE} date={dateFilter} />
           <Link href="/admin/pending-outreach" className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-100">
             Pending Outreach <ChevronRight size={14} />
           </Link>
