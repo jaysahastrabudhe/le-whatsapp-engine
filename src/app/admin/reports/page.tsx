@@ -36,7 +36,8 @@ export default async function ReportsPage() {
   const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
 
   const [callsRes, inboundRes, downloadsRes] = await Promise.all([
-    supabase.from('call_logs').select('called_at').gte('called_at', cutoff),
+    supabase.from('call_logs').select('called_at').gte('called_at', cutoff)
+      .not('contact_status', 'in', '("message_sent","message_no_reply")'),
     supabase.from('messages').select('sent_at').eq('direction', 'inbound').gte('sent_at', cutoff),
     supabase.from('csv_imports').select('created_at, row_count').eq('type', 'failed_export').order('created_at', { ascending: false }),
   ]);
@@ -67,6 +68,18 @@ export default async function ReportsPage() {
 
       {/* Report Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Link href={`/admin/reports/daily-funnel?date=${today}`} className="group block">
+          <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-indigo-500 transition-all">
+            <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-1 group-hover:text-indigo-600 transition-colors">Daily Funnel Report</h3>
+            <p className="text-gray-500 text-sm">The 4-person count: Sharjeel (MQL), Gargi (calls→SQL), Jonathan (manual replies), Jay (roll-up).</p>
+          </div>
+        </Link>
+
         <Link href={`/admin/reports/daily-calls?date=${today}`} className="group block">
           <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-blue-500 transition-all">
             <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">

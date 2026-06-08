@@ -30,6 +30,13 @@ export async function POST(request: Request) {
     const { error } = await supabase.from('leads').update(update).eq('id', leadId);
     if (error) throw error;
 
+    // Date-accurate audit event for the Daily Funnel Report (manual stage move).
+    await supabase.from('lead_events').insert({
+      lead_id: leadId,
+      event_type: 'funnel_transition',
+      payload: { outcome: 'manual_move', to_stage: stage, to_wa_state: wa ?? null },
+    }).then(({ e }: any) => { if (e) console.warn('[Move Stage] audit event failed'); });
+
     // Push to Zoho. zoho_synced_at stays null (set above) so the reconcile cron retries
     // if this fails (e.g. the MQL+ picklist value isn't configured in Zoho yet).
     let zohoOk = true;

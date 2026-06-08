@@ -137,6 +137,24 @@ export async function POST(request: Request) {
 
     if (updateError) throw updateError;
 
+    // 2b. Append a date-accurate funnel-transition audit event so the Daily Funnel Report
+    // can count outcomes/stage moves exactly by created_at (instead of the imprecise
+    // leads.updated_at). Best-effort — never block the call log on this.
+    if (outcome) {
+      await supabase.from('lead_events').insert({
+        lead_id: leadId,
+        event_type: 'funnel_transition',
+        payload: {
+          caller,
+          outcome,
+          channel: isMessage ? 'message' : 'call',
+          from_stage: currentStage ?? null,
+          to_stage: updateFields.lead_stage ?? null,
+          to_wa_state: updateFields.wa_state ?? null,
+        },
+      }).then(({ error }) => { if (error) console.warn('[Call Log] audit event failed:', error.message); });
+    }
+
     // 3. Write to Zoho immediately (both note and field update)
     let zohoNoteOk = true;
     let zohoFieldsOk = true;

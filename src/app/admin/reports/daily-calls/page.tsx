@@ -86,6 +86,7 @@ export default async function DailyCallsPage({
   // Summary stats
   const totalCalls   = rows.length;
   const answered     = rows.filter(r => r.contact_status === 'answered').length;
+  const negative     = rows.filter(r => r.contact_status === 'negative').length;
   const noAnswer     = rows.filter(r => r.contact_status === 'no_answer').length;
   const callBack     = rows.filter(r => r.contact_status === 'call_back_later').length;
 
@@ -130,14 +131,18 @@ export default async function DailyCallsPage({
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white border rounded-xl p-4 text-center shadow-sm">
           <div className="text-3xl font-bold text-gray-900">{totalCalls}</div>
           <div className="text-xs text-gray-500 mt-1 font-medium uppercase tracking-wide">Total Calls</div>
         </div>
         <div className="bg-white border rounded-xl p-4 text-center shadow-sm">
           <div className="text-3xl font-bold text-green-600">{answered}</div>
-          <div className="text-xs text-gray-500 mt-1 font-medium uppercase tracking-wide">Answered</div>
+          <div className="text-xs text-gray-500 mt-1 font-medium uppercase tracking-wide">Positive</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 text-center shadow-sm">
+          <div className="text-3xl font-bold text-rose-600">{negative}</div>
+          <div className="text-xs text-gray-500 mt-1 font-medium uppercase tracking-wide">Negative</div>
         </div>
         <div className="bg-white border rounded-xl p-4 text-center shadow-sm">
           <div className="text-3xl font-bold text-red-500">{noAnswer}</div>
