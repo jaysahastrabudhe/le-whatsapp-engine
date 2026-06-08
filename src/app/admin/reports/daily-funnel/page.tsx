@@ -81,10 +81,12 @@ export default async function DailyFunnelReportPage({ searchParams }: { searchPa
   // discovery → MQL+++, resolved → SQL. So "MQL" here means genuinely un-engaged MQLs only.
   const headCount = async (q: any) => (await q).count ?? 0;
   const stageCounts: Record<string, number> = {
+    // Report MQL = genuinely fresh MQLs only: not disqualified, not yet contacted
+    // (excludes 'Contacted'/'Attempted to Contact'), and not engaged/advanced via wa_state.
     'MQL': await headCount(
       supabase.from('leads').select('*', { count: 'exact', head: true })
         .eq('lead_stage', 'MQL')
-        .or('lead_status.is.null,lead_status.not.in.("Junk Lead","Lost Lead","Not Qualified")')
+        .or('lead_status.is.null,lead_status.not.in.("Contacted","Attempted to Contact","Junk Lead","Lost Lead","Not Qualified")')
         .or('wa_state.is.null,wa_state.not.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture","call_queued","call_follow_up","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")')
     ),
     'MQL+': await headCount(
