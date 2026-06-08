@@ -5,7 +5,8 @@ import { normaliseIndianPhone } from '@/lib/utils/phoneNormaliser';
 export async function POST(request: Request) {
   const VALID_SOURCES = ['Direct WhatsApp', 'Instagram', 'Web Chat', 'Email'];
   try {
-    const { phone, source, messageSent, replyReceived } = await request.json();
+    const { phone, source, messageSent, replyReceived, name } = await request.json();
+    const newName = typeof name === 'string' && name.trim() ? name.trim() : null;
 
     if (!phone) {
       return NextResponse.json({ error: 'Phone number is required' }, { status: 400 });
@@ -19,15 +20,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid phone number. Enter a 10-digit Indian mobile number.' }, { status: 400 });
     }
 
-    // Look up lead
-    const { data: lead, error: fetchError } = await supabase
+    const nowIso = new Date().toISOString();
+
+    // Look up lead by phone
+    let { data: lead } = await supabase
       .from('leads')
       .select('id, name, phone_normalised, zoho_lead_id, lead_stage')
       .eq('phone_normalised', phoneNormalised)
-      .single();
+      .maybeSingle();
 
-    if (fetchError || !lead) {
-      return NextResponse.json({ error: 'Lead not found in Supabase database. Are they synced?' }, { status: 404 });
+    // Not in the system → create a new lead from the entered number (organic → MQL++).
+    if (!lead) {
+      const { data: created, error: createErr } = await supabase
+        .from('leads')
+        .insert({
+          phone_normalised: phoneNormalised,
+          name: newName,
+          lead_source: replySource,
+          lead_stage: 'MQL++',
+          wa_state: 'replied_manual',
+          wa_hotness: 'hot',
+          wa_opt_in: false,
+          wa_last_inbound_at: nowIso,
+        })
+        .select('id, name, phone_normalised, zoho_lead_id, lead_stage')
+        .single();
+      if (createErr || !created) {
+        return NextResponse.json({ error: createErr?.message || 'Could not create lead' }, { status: 500 });
+      }
+      lead = created;
+    } else if (newName && !lead.name) {
+      // Backfill a name if the existing lead had none and one was provided.
+      await supabase.from('leads').update({ name: newName }).eq('id', lead.id);
+      lead.name = newName;
     }
 
     // A manual reply enters as MQL++ — but never DOWNGRADE a more-advanced lead
@@ -39,7 +64,6 @@ export async function POST(request: Request) {
     // state 'replied_manual' (not 'replied') so the re-engagement cron — which targets
     // wa_state='replied' to auto-send a WhatsApp template — never messages a lead who
     // actually replied on Instagram / Email / etc. A human (Gargi) owns these.
-    const nowIso = new Date().toISOString();
     const { error: updateError } = await supabase
       .from('leads')
       .update({

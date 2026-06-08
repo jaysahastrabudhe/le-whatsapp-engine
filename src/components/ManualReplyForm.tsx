@@ -23,6 +23,7 @@ export default function ManualReplyForm() {
   const [results, setResults] = useState<LeadResult[]>([]);
   const [selected, setSelected] = useState<LeadResult | null>(null);
   const [source, setSource] = useState(SOURCES[0]);
+  const [newName, setNewName] = useState('');
   const [messageSent, setMessageSent] = useState('');
   const [replyReceived, setReplyReceived] = useState('');
   const [open, setOpen] = useState(false);
@@ -82,9 +83,14 @@ export default function ManualReplyForm() {
     setMessage(null);
   }
 
+  // A typed number (not in search) is valid to submit if it has 10+ digits.
+  const typedDigits = query.replace(/\D/g, '');
+  const canSubmitNew = !selected && typedDigits.length >= 10;
+
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
-    if (!selected) return;
+    if (!selected && !canSubmitNew) return;
+    const phone = selected ? selected.phone_normalised : query.trim();
     setSubmitting(true);
     setMessage(null);
     try {
@@ -92,18 +98,21 @@ export default function ManualReplyForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: selected.phone_normalised,
+          phone,
           source,
+          name: !selected ? (newName.trim() || undefined) : undefined,
           messageSent: messageSent.trim() || undefined,
           replyReceived: replyReceived.trim() || undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add reply');
-      setMessage({ text: `${selected.name || 'Lead'} added to Gargi's inbound box (${source}).`, type: 'success' });
+      const who = selected?.name || newName.trim() || 'New lead';
+      setMessage({ text: `${who} added to Gargi's inbound box (${source}).`, type: 'success' });
       setQuery('');
       setSelected(null);
       setResults([]);
+      setNewName('');
       setMessageSent('');
       setReplyReceived('');
       router.refresh();
@@ -119,7 +128,7 @@ export default function ManualReplyForm() {
   return (
     <div className="bg-white border rounded-lg p-6 shadow-sm border-blue-200">
       <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-1">Manual Reply Entry</h2>
-      <p className="text-xs text-gray-500 mb-4">Logged a reply from a lead (Instagram, Email, Direct WhatsApp…)? Pick the source and add them to Gargi&rsquo;s inbound box.</p>
+      <p className="text-xs text-gray-500 mb-4">Logged a reply from a lead (Instagram, Email, Direct WhatsApp…)? Search an existing lead, or type a new number to add it. Goes to Gargi&rsquo;s inbound box.</p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <div className="flex gap-3 items-start">
@@ -190,12 +199,28 @@ export default function ManualReplyForm() {
           )}
 
           {open && results.length === 0 && !searching && query.length >= 2 && (
-            <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-3 text-sm text-gray-400">
-              No leads found for &ldquo;{query}&rdquo;
+            <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-3 text-sm text-gray-500">
+              {canSubmitNew
+                ? <>Not in the list — this number will be <span className="font-semibold">added as a new lead</span>. Add a name below.</>
+                : <>No match. Type the full 10-digit number to add it as a new lead.</>}
             </div>
           )}
         </div>
         </div>
+
+        {/* New-number name field — only when adding a number not found in search */}
+        {canSubmitNew && (
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Name <span className="text-gray-300">(for the new number)</span></label>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Lead name (optional)"
+              className="w-full md:w-72 border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+        )}
 
         {/* Message sent + reply received — the actual conversation, both important */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -223,7 +248,7 @@ export default function ManualReplyForm() {
 
         <button
           type="submit"
-          disabled={submitting || !selected}
+          disabled={submitting || (!selected && !canSubmitNew)}
           className="self-start bg-gray-900 text-white px-5 py-2 rounded-md font-medium text-sm hover:bg-gray-800 transition-colors disabled:opacity-40 whitespace-nowrap"
         >
           {submitting ? 'Adding…' : 'Add Reply'}
