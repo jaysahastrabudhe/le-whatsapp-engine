@@ -16,7 +16,7 @@ const HOTNESS_STYLES: Record<string, string> = {
   cold: 'bg-blue-100 text-blue-700',
 };
 
-const SOURCES = ['Instagram', 'Email', 'Direct WhatsApp', 'Manual Replies'];
+const SOURCES = ['Direct WhatsApp', 'Instagram', 'Web Chat', 'Email'];
 
 export default function ManualReplyForm() {
   const [query, setQuery] = useState('');

@@ -2,14 +2,18 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import CallLogWrapper from '@/components/CallLogWrapper';
 import {
-  TH, UNIFIED_HEADERS, formatIST, timeRemaining, buildLogMaps,
-  MaybeNote, LeadCell, LeadStatusCell, HotnessCell,
+  TH, UNIFIED_HEADERS, PAGE_SIZE, formatIST, timeRemaining, buildLogMaps,
+  MaybeNote, Pager, LeadCell, LeadStatusCell, HotnessCell,
 } from '@/components/admin/leadCells';
 import { ChevronLeft } from 'lucide-react';
 
 export const revalidate = 0;
 
-export default async function PendingOutreachPage() {
+const BASE = '/admin/pending-outreach';
+
+export default async function PendingOutreachPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const sp = await searchParams;
+  const page = Math.max(1, parseInt(sp.page || '1') || 1);
   const now = Date.now();
 
   // Call queue: call_queued + overdue call_follow_up
@@ -48,7 +52,9 @@ export default async function PendingOutreachPage() {
     sortTime: new Date(lead.wa_human_response_due_at!).getTime(),
   }));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const combinedLeads: any[] = [...callQueueMapped, ...activeMapped].sort((a, b) => a.sortTime - b.sortTime);
+  const allLeads: any[] = [...callQueueMapped, ...activeMapped].sort((a, b) => a.sortTime - b.sortTime);
+  const total = allLeads.length;
+  const combinedLeads = allLeads.slice((page - 1) * PAGE_SIZE, (page - 1) * PAGE_SIZE + PAGE_SIZE);
   const breached = activeMapped.filter(l => new Date(l.wa_human_response_due_at!).getTime() < now).length;
 
   return (
@@ -66,7 +72,7 @@ export default async function PendingOutreachPage() {
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-blue-500" />
             <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-              Pending Outreach <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{combinedLeads.length}</span>
+              Pending Outreach <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{total}</span>
             </h2>
           </div>
           {breached > 0 && (
@@ -117,6 +123,7 @@ export default async function PendingOutreachPage() {
               })}
             </tbody>
           </table>
+          <Pager basePath={BASE} params={sp} pageParam="page" page={page} total={total} />
         </div>
       </section>
     </div>

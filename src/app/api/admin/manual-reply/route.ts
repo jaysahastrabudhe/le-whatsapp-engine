@@ -3,14 +3,14 @@ import { supabase } from '@/lib/supabase';
 import { normaliseIndianPhone } from '@/lib/utils/phoneNormaliser';
 
 export async function POST(request: Request) {
-  const VALID_SOURCES = ['Instagram', 'Email', 'Direct WhatsApp', 'Manual Replies'];
+  const VALID_SOURCES = ['Direct WhatsApp', 'Instagram', 'Web Chat', 'Email'];
   try {
     const { phone, source } = await request.json();
 
     if (!phone) {
       return NextResponse.json({ error: 'Phone number is required' }, { status: 400 });
     }
-    const replySource = VALID_SOURCES.includes(source) ? source : 'Manual Replies';
+    const replySource = VALID_SOURCES.includes(source) ? source : 'Web Chat';
 
     const phoneNormalised = normaliseIndianPhone(phone);
     if (!phoneNormalised) {

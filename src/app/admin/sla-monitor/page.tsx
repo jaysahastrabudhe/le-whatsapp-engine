@@ -4,37 +4,51 @@ import ManualReplyForm from '@/components/ManualReplyForm';
 import CallLogWrapper from '@/components/CallLogWrapper';
 import TriggerCronButton from '@/components/TriggerCronButton';
 import {
-  TH, UNIFIED_HEADERS, formatIST, buildLogMaps,
-  MaybeNote, BoxOwner, LeadCell, LeadStatusCell, HotnessCell,
+  TH, UNIFIED_HEADERS, PAGE_SIZE, formatIST, buildLogMaps,
+  MaybeNote, BoxOwner, Pager, LeadCell, LeadStatusCell, HotnessCell,
 } from '@/components/admin/leadCells';
 import { ChevronRight } from 'lucide-react';
 
 export const revalidate = 0;
 
-export default async function SLAMonitorPage() {
+const BASE = '/admin/sla-monitor';
+
+export default async function SLAMonitorPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const sp = await searchParams;
   const now = Date.now();
+  const nowIso = new Date().toISOString();
+  const pageOf = (key: string) => Math.max(1, parseInt(sp[key] || '1') || 1);
+  const mqlPage = pageOf('mql_page');
+  const inboundPage = pageOf('inbound_page');
+  const discPage = pageOf('disc_page');
+  const rangeFor = (p: number) => [(p - 1) * PAGE_SIZE, (p - 1) * PAGE_SIZE + PAGE_SIZE - 1] as const;
 
   // ── MQL Outreach (owner: Sharjeel) ──────────────────────────────────────
   // Include rows where lead_status IS NULL — PostgreSQL NOT IN drops NULLs otherwise.
   const MQL_EXCLUDE_STATUSES = ['Contacted', 'Junk Lead', 'Lost Lead', 'Not Qualified', 'Attempted to Contact'];
   const excludeList = `(${MQL_EXCLUDE_STATUSES.map(s => `"${s}"`).join(',')})`;
-  const { data: mqlLeads } = await supabase
+  const { data: mqlLeads, count: mqlCount } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at')
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at', { count: 'exact' })
     .eq('lead_stage', 'MQL')
     .or(`lead_status.is.null,lead_status.not.in.${excludeList}`)
-    .order('updated_at', { ascending: false });
+    .order('updated_at', { ascending: false })
+    .range(...rangeFor(mqlPage));
   const mqlOutreachLeads = mqlLeads || [];
 
   // ── Inbound & Manual Replies (owner: Gargi) ─────────────────────────────
   // wa_state = 'replied' covers genuine WhatsApp inbound replies AND manual replies
   // (Instagram / Email / Direct WhatsApp) that Jonathan logs via the form below.
-  const { data: inbound } = await supabase
+  // All manual-reply channels (WhatsApp / Instagram / Web Chat / Email) land here as
+  // 'replied_manual'; genuine inbound WhatsApp replies are 'replied'; SLA-escalated
+  // inbound leads ('wa_sla_escalated') are also just inbound messages, so they live here
+  // too (the standalone Escalated section was removed).
+  const { data: inbound, count: inboundCount } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, lead_status, wa_hotness, wa_reply_class, wa_last_inbound_at, followup_call_at')
-    .in('wa_state', ['replied', 'replied_manual'])
+    .select('id, name, phone_normalised, zoho_lead_id, lead_status, wa_hotness, wa_reply_class, wa_last_inbound_at, followup_call_at, wa_state', { count: 'exact' })
+    .in('wa_state', ['replied', 'replied_manual', 'wa_sla_escalated'])
     .order('wa_last_inbound_at', { ascending: false, nullsFirst: false })
-    .limit(100);
+    .range(...rangeFor(inboundPage));
   const inboundLeads = inbound || [];
 
   // Source map: latest manual_reply event per lead (Instagram / Email / Direct WhatsApp …)
@@ -53,14 +67,16 @@ export default async function SLAMonitorPage() {
   }
 
   // ── Discovery Call Queue (owner: Gargi) ─────────────────────────────────
-  const { data: discovery } = await supabase
+  // Due now = no callback scheduled OR callback time has passed (filtered in SQL so
+  // pagination counts are correct).
+  const { data: discovery, count: discCount } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at, wa_state')
+    .select('id, name, phone_normalised, zoho_lead_id, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at, wa_state', { count: 'exact' })
     .eq('wa_state', 'discovery_call')
-    .order('created_at', { ascending: false });
-  const discoveryQueueLeads = (discovery || []).filter(l =>
-    !l.followup_call_at || new Date(l.followup_call_at).getTime() <= now
-  );
+    .or(`followup_call_at.is.null,followup_call_at.lte.${nowIso}`)
+    .order('created_at', { ascending: false })
+    .range(...rangeFor(discPage));
+  const discoveryQueueLeads = discovery || [];
 
   // ── Call-log derived maps (Called tag, attempt count, last note) ─────────
   const { data: callLogData } = await supabase
@@ -93,7 +109,7 @@ export default async function SLAMonitorPage() {
             Pending Outreach <ChevronRight size={14} />
           </Link>
           <Link href="/admin/backlog" className="inline-flex items-center gap-1 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 hover:bg-rose-100">
-            Backlog &amp; Escalations <ChevronRight size={14} />
+            Backlog <ChevronRight size={14} />
           </Link>
         </div>
       </div>
@@ -107,15 +123,15 @@ export default async function SLAMonitorPage() {
         <div className="px-5 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="rounded-xl border-2 border-amber-200 bg-amber-50/50 px-5 py-4 text-center">
             <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider mb-1">MQL · Sharjeel</p>
-            <p className="text-3xl font-bold text-amber-700">{mqlOutreachLeads.length}</p>
+            <p className="text-3xl font-bold text-amber-700">{mqlCount ?? 0}</p>
           </div>
           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/50 px-5 py-4 text-center">
             <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mb-1">Inbound · Gargi</p>
-            <p className="text-3xl font-bold text-emerald-700">{inboundLeads.length}</p>
+            <p className="text-3xl font-bold text-emerald-700">{inboundCount ?? 0}</p>
           </div>
           <div className="rounded-xl border-2 border-purple-200 bg-purple-50/50 px-5 py-4 text-center">
             <p className="text-[10px] font-semibold text-purple-600 uppercase tracking-wider mb-1">Discovery · Gargi</p>
-            <p className="text-3xl font-bold text-purple-700">{discoveryQueueLeads.length}</p>
+            <p className="text-3xl font-bold text-purple-700">{discCount ?? 0}</p>
           </div>
           <div className="rounded-xl border-2 border-green-200 bg-green-50/50 px-5 py-4">
             <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wider mb-2">Today&apos;s Calls</p>
@@ -133,7 +149,7 @@ export default async function SLAMonitorPage() {
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="w-2 h-2 rounded-full bg-amber-500" />
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-            MQL Outreach <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{mqlOutreachLeads.length}</span>
+            MQL Outreach <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{mqlCount ?? 0}</span>
           </h2>
           <BoxOwner name="Sharjeel" color="amber" />
           <span className="text-xs text-gray-400 ml-1">Sharjeel calls or messages — either works.</span>
@@ -165,6 +181,7 @@ export default async function SLAMonitorPage() {
               ))}
             </tbody>
           </table>
+          <Pager basePath={BASE} params={sp} pageParam="mql_page" page={mqlPage} total={mqlCount ?? 0} />
         </div>
       </section>
 
@@ -175,7 +192,7 @@ export default async function SLAMonitorPage() {
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="w-2 h-2 rounded-full bg-emerald-500" />
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-            Inbound &amp; Manual Replies <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{inboundLeads.length}</span>
+            Inbound &amp; Manual Replies <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{inboundCount ?? 0}</span>
           </h2>
           <BoxOwner name="Jonathan · entry" color="gray" />
           <BoxOwner name="Gargi · calling" color="purple" />
@@ -209,6 +226,7 @@ export default async function SLAMonitorPage() {
               ))}
             </tbody>
           </table>
+          <Pager basePath={BASE} params={sp} pageParam="inbound_page" page={inboundPage} total={inboundCount ?? 0} />
         </div>
       </section>
 
@@ -219,7 +237,7 @@ export default async function SLAMonitorPage() {
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-            Discovery Call Queue <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{discoveryQueueLeads.length}</span>
+            Discovery Call Queue <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{discCount ?? 0}</span>
           </h2>
           <BoxOwner name="Gargi" color="purple" />
         </div>
@@ -250,6 +268,7 @@ export default async function SLAMonitorPage() {
               ))}
             </tbody>
           </table>
+          <Pager basePath={BASE} params={sp} pageParam="disc_page" page={discPage} total={discCount ?? 0} />
         </div>
       </section>
     </div>
