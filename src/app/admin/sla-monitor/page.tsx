@@ -27,10 +27,10 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
 
   // ── MQL Outreach (owner: Sharjeel) ──────────────────────────────────────
   // Include rows where lead_status IS NULL — PostgreSQL NOT IN drops NULLs otherwise.
-  // Only DISQUALIFIED statuses hide a lead from the MQL box. 'Contacted' / 'Attempted to
-  // Contact' just mean the engine sent a WhatsApp message — those are still live MQLs that
-  // Sharjeel must work, so they stay. (Engagement/advance is handled by the wa_state filter.)
-  const MQL_EXCLUDE_STATUSES = ['Junk Lead', 'Lost Lead', 'Not Qualified'];
+  // MQL box = UNCONTACTED MQLs only. Exclude already-contacted ('Contacted' / 'Attempted
+  // to Contact') and disqualified statuses; engaged/replied leads are excluded via wa_state.
+  // (Contacted-but-not-replied leads live in Pending Outreach / the call pipeline.)
+  const MQL_EXCLUDE_STATUSES = ['Contacted', 'Attempted to Contact', 'Junk Lead', 'Lost Lead', 'Not Qualified'];
   const excludeList = `(${MQL_EXCLUDE_STATUSES.map(s => `"${s}"`).join(',')})`;
   const { data: mqlLeads, count: mqlCount } = await supabase
     .from('leads')
