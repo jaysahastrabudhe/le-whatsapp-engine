@@ -2,8 +2,38 @@
 // Plain (server-safe) render helpers — they compose the client components NoteTooltip,
 // CallLogWrapper, etc. where needed.
 import NoteTooltip from '@/components/NoteTooltip';
+import Link from 'next/link';
 
 export const TH = 'px-4 py-3';
+export const PAGE_SIZE = 30;
+
+// Date-wise pager. Server-rendered links that preserve every other box's page param.
+export function Pager({ basePath, params, pageParam, page, total, pageSize = PAGE_SIZE }: {
+  basePath: string;
+  params: Record<string, string | undefined>;
+  pageParam: string;
+  page: number;
+  total: number;
+  pageSize?: number;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const mk = (p: number) => {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && k !== pageParam) sp.set(k, String(v));
+    sp.set(pageParam, String(p));
+    return `${basePath}?${sp.toString()}#${pageParam}`;
+  };
+  const btn = 'px-3 py-1 rounded-md text-xs font-semibold border transition-colors';
+  const on  = 'text-gray-700 bg-white border-gray-300 hover:bg-gray-50';
+  const off = 'text-gray-300 bg-gray-50 border-gray-200 pointer-events-none';
+  return (
+    <div className="flex items-center justify-between px-4 py-2 border-t bg-gray-50/50 text-xs text-gray-500">
+      <Link href={mk(page - 1)} className={`${btn} ${page <= 1 ? off : on}`}>← Prev</Link>
+      <span>Page {Math.min(page, totalPages)} of {totalPages} · {total} total</span>
+      <Link href={mk(page + 1)} className={`${btn} ${page >= totalPages ? off : on}`}>Next →</Link>
+    </div>
+  );
+}
 
 // Columns shared by the box tables. Per-lead "Assigned To" was removed — boxes are
 // owned by a person now (see BoxOwner), so the column is gone.
