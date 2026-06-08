@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { createZohoNote, updateZohoLead } from '@/lib/zoho';
+import { positiveCallTarget, waStateForStage, WA_COLD, WA_JUNK, NO_ANSWER_LIMIT } from '@/lib/funnel';
 
 export async function POST(request: Request) {
   try {
@@ -8,10 +9,13 @@ export async function POST(request: Request) {
       leadId, zohoLeadId, caller, calledAt, contactStatus,
       notes, nextAction, nextActionDate, currentQueue,
       leadStage, leadStatus, channel,
+      // Funnel-driven routing (preferred): outcome = positive | negative | no_answer | call_back_later
+      outcome, currentStage, noAnswerCount,
     } = await request.json();
     const isMessage = channel === 'message';
+    const nowIso = new Date().toISOString();
 
-    if (!leadId || !caller || !calledAt || !contactStatus || !nextAction) {
+    if (!leadId || !caller || !calledAt || !contactStatus || (!nextAction && !outcome)) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -39,23 +43,59 @@ export async function POST(request: Request) {
       wa_human_response_due_at: null, // Any call counts as human response — clear WA SLA timer
     };
 
-    if (nextAction === 'close_lead') {
+    if (outcome) {
+      // ── Funnel-driven routing (Positive / Negative / No-answer / Call-back) ──
+      if (outcome === 'negative') {
+        // Negative at ANY touchpoint → Junk (disqualified).
+        updateFields.wa_state = WA_JUNK;
+        updateFields.lead_status = 'Junk Lead';
+        updateFields.followup_call_at = null;
+        updateFields.updated_at = nowIso;
+      } else if (outcome === 'positive') {
+        if (isMessage) {
+          // MQL message positive → unlock Sharjeel's call; record-only, stays in box.
+        } else {
+          // Positive call advances the funnel: MQL/MQL+/MQL++ → MQL+++, MQL+++ → SQL.
+          const target = positiveCallTarget(currentStage);
+          updateFields.lead_stage = target;
+          const wa = waStateForStage(target);
+          if (wa) updateFields.wa_state = wa;
+          updateFields.followup_call_at = null;
+          if (target === 'SQL') updateFields.lead_status = 'Contacted';
+          updateFields.updated_at = nowIso;
+        }
+      } else if (outcome === 'call_back_later') {
+        updateFields.wa_state = currentStage === 'MQL+++' ? 'discovery_call' : 'call_follow_up';
+        updateFields.followup_call_at = nextActionDate;
+        updateFields.updated_at = nowIso;
+      } else {
+        // no_answer — count attempts; the 3rd unanswered attempt parks the lead as Cold.
+        const attempts = (noAnswerCount ?? 0) + 1;
+        if (attempts >= NO_ANSWER_LIMIT) {
+          updateFields.wa_state = WA_COLD;
+          updateFields.lead_status = 'Cold';
+          updateFields.followup_call_at = null;
+          updateFields.updated_at = nowIso;
+        }
+        // else: leave the lead in place, do not bump updated_at (preserve queue position)
+      }
+    } else if (nextAction === 'close_lead') {
       updateFields.wa_state = 'wa_closed';
       updateFields.followup_call_at = null;
-      updateFields.updated_at = new Date().toISOString();
+      updateFields.updated_at = nowIso;
     } else if (nextAction === 'discovery_call') {
       updateFields.wa_state = 'discovery_call';
       updateFields.followup_call_at = null;
-      updateFields.updated_at = new Date().toISOString();
+      updateFields.updated_at = nowIso;
     } else if (nextAction === 'ready_to_fill') {
       updateFields.wa_state = 'wa_sla_resolved';
       updateFields.followup_call_at = null;
-      updateFields.updated_at = new Date().toISOString();
+      updateFields.updated_at = nowIso;
     } else if (nextAction === 'followup_on_date') {
       // Schedule a specific retry date — lead hides until that date
       updateFields.wa_state = currentQueue === 'discovery_call' ? 'discovery_call' : 'call_follow_up';
       updateFields.followup_call_at = nextActionDate;
-      updateFields.updated_at = new Date().toISOString();
+      updateFields.updated_at = nowIso;
     } else {
       // no_answer / message-keep — queue position must not change, so updated_at is
       // intentionally NOT set here. A *call* no-answer on a whatsapp_reply lead promotes
@@ -68,9 +108,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // Write CRM stage fields if provided
-    if (leadStage)  updateFields.lead_stage  = leadStage;
-    if (leadStatus) updateFields.lead_status = leadStatus;
+    // Legacy explicit CRM fields (only when not outcome-driven — outcome sets them above)
+    if (!outcome && leadStage)  updateFields.lead_stage  = leadStage;
+    if (!outcome && leadStatus) updateFields.lead_status = leadStatus;
 
     // Mark dirty for reconcile (WA fields only — Lead_Stage written directly below)
     updateFields.zoho_synced_at = null;
@@ -90,13 +130,17 @@ export async function POST(request: Request) {
     const { data: leadRow } = await supabase.from('leads').select('zoho_module').eq('id', leadId).single();
     const isContactsModule = leadRow?.zoho_module === 'contacts';
 
+    // Effective CRM fields = whatever we actually wrote to the lead (funnel routing or legacy).
+    const effStage  = updateFields.lead_stage  ?? leadStage;
+    const effStatus = updateFields.lead_status ?? leadStatus;
+
     if (zohoLeadId && !isContactsModule) {
       // 3a. Field writeback — Lead_Stage, Lead_Status (awaited)
-      if (leadStage || leadStatus) {
+      if (effStage || effStatus) {
         try {
           await updateZohoLead(zohoLeadId, {
-            ...(leadStage  && { Lead_Stage:  leadStage }),
-            ...(leadStatus && { Lead_Status: leadStatus }),
+            ...(effStage  && { Lead_Stage:  effStage }),
+            ...(effStatus && { Lead_Status: effStatus }),
           });
         } catch (e: any) {
           console.error('[Call Log] Zoho field writeback failed:', e.message);
@@ -109,9 +153,10 @@ export async function POST(request: Request) {
         const title = isMessage
           ? `Message Log: ${caller}`
           : `Call Log: ${contactStatus.replace(/_/g, ' ').toUpperCase()}`;
-        let content = `Caller: ${caller}\nAction: ${nextAction.replace(/_/g, ' ').toUpperCase()}`;
-        if (leadStage)  content += `\nLead Stage → ${leadStage}`;
-        if (leadStatus) content += `\nLead Status → ${leadStatus}`;
+        const actionLabel = (outcome || nextAction || '').replace(/_/g, ' ').toUpperCase();
+        let content = `Caller: ${caller}\nOutcome: ${actionLabel}`;
+        if (effStage)  content += `\nLead Stage → ${effStage}`;
+        if (effStatus) content += `\nLead Status → ${effStatus}`;
         content += `\n\nNotes:\n${notes}`;
         if (nextActionDate) {
           content += `\n\nScheduled for: ${new Date(nextActionDate).toLocaleString('en-IN', {

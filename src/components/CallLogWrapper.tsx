@@ -53,6 +53,7 @@ export default function CallLogWrapper({
           zohoLeadId={lead.zoho_lead_id}
           leadName={lead.name || lead.phone_normalised}
           queueType={queueType}
+          currentStage={lead.lead_stage ?? null}
           noAnswerCount={noAnswerCount}
           channel={open}
           defaultCaller={defaultCaller}

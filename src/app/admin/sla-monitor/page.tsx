@@ -4,18 +4,20 @@ import ManualReplyForm from '@/components/ManualReplyForm';
 import CallLogWrapper from '@/components/CallLogWrapper';
 import TriggerCronButton from '@/components/TriggerCronButton';
 import {
-  TH, UNIFIED_HEADERS, PAGE_SIZE, formatIST, buildLogMaps,
+  TH, PAGE_SIZE, formatIST, buildLogMaps,
   MaybeNote, BoxOwner, Pager, LeadCell, LeadStatusCell, HotnessCell,
 } from '@/components/admin/leadCells';
+import MoveStageSelect from '@/components/admin/MoveStageSelect';
 import { ChevronRight } from 'lucide-react';
 
 export const revalidate = 0;
 
 const BASE = '/admin/sla-monitor';
+// Boxes get a Stage column (move control) — distinct from the shared 5-col layout.
+const HEADERS = ['Lead', 'Lead Status', 'Hotness', 'Context', 'Stage', 'Action'];
 
 export default async function SLAMonitorPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
-  const now = Date.now();
   const nowIso = new Date().toISOString();
   const pageOf = (key: string) => Math.max(1, parseInt(sp[key] || '1') || 1);
   const mqlPage = pageOf('mql_page');
@@ -32,6 +34,8 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at', { count: 'exact' })
     .eq('lead_stage', 'MQL')
     .or(`lead_status.is.null,lead_status.not.in.${excludeList}`)
+    // Exclude leads that have already engaged/advanced — they belong in the other boxes.
+    .not('wa_state', 'in', '("replied","replied_manual","wa_sla_escalated","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")')
     .order('updated_at', { ascending: false })
     .range(...rangeFor(mqlPage));
   const mqlOutreachLeads = mqlLeads || [];
@@ -45,8 +49,8 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
   // too (the standalone Escalated section was removed).
   const { data: inbound, count: inboundCount } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, lead_status, wa_hotness, wa_reply_class, wa_last_inbound_at, followup_call_at, wa_state', { count: 'exact' })
-    .in('wa_state', ['replied', 'replied_manual', 'wa_sla_escalated'])
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, wa_last_inbound_at, followup_call_at, wa_state', { count: 'exact' })
+    .or('lead_stage.in.("MQL+","MQL++"),wa_state.in.("replied","replied_manual","wa_sla_escalated")')
     .order('wa_last_inbound_at', { ascending: false, nullsFirst: false })
     .range(...rangeFor(inboundPage));
   const inboundLeads = inbound || [];
@@ -71,8 +75,8 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
   // pagination counts are correct).
   const { data: discovery, count: discCount } = await supabase
     .from('leads')
-    .select('id, name, phone_normalised, zoho_lead_id, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at, wa_state', { count: 'exact' })
-    .eq('wa_state', 'discovery_call')
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at, wa_state', { count: 'exact' })
+    .or('lead_stage.eq."MQL+++",wa_state.eq.discovery_call')
     .or(`followup_call_at.is.null,followup_call_at.lte.${nowIso}`)
     .order('created_at', { ascending: false })
     .range(...rangeFor(discPage));
@@ -159,12 +163,12 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
           <table className="w-full text-sm text-left">
             <thead>
               <tr className="bg-amber-50/40 border-b text-xs text-gray-500 uppercase tracking-wider">
-                {UNIFIED_HEADERS.map(h => <th key={h} className={TH}>{h}</th>)}
+                {HEADERS.map(h => <th key={h} className={TH}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {mqlOutreachLeads.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">No MQL leads pending outreach.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">No MQL leads pending outreach.</td></tr>
               ) : mqlOutreachLeads.map((lead) => (
                 <tr key={lead.id} className="border-b hover:bg-amber-50/20">
                   <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} />
@@ -173,6 +177,9 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
                   <td className={TH + ' text-xs text-gray-500'}>
                     Updated {formatIST(lead.updated_at)}
                     <MaybeNote note={lastNoteMap[lead.id]} />
+                  </td>
+                  <td className={TH}>
+                    <MoveStageSelect leadId={lead.id} zohoLeadId={lead.zoho_lead_id} currentStage={lead.lead_stage ?? null} />
                   </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper lead={lead} queueType="mql_outreach" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} showMessage defaultCaller="Sharjeel" />
@@ -204,12 +211,12 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
           <table className="w-full text-sm text-left">
             <thead>
               <tr className="bg-emerald-50/40 border-b text-xs text-gray-500 uppercase tracking-wider">
-                {UNIFIED_HEADERS.map(h => <th key={h} className={TH}>{h}</th>)}
+                {HEADERS.map(h => <th key={h} className={TH}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {inboundLeads.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">No inbound or manual replies waiting.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">No inbound or manual replies waiting.</td></tr>
               ) : inboundLeads.map((lead) => (
                 <tr key={lead.id} className="border-b hover:bg-emerald-50/20">
                   <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} source={sourceMap[lead.id]} />
@@ -218,6 +225,9 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
                   <td className={TH + ' text-xs text-gray-500 whitespace-nowrap'}>
                     Replied {formatIST(lead.wa_last_inbound_at)}
                     <MaybeNote note={lastNoteMap[lead.id]} />
+                  </td>
+                  <td className={TH}>
+                    <MoveStageSelect leadId={lead.id} zohoLeadId={lead.zoho_lead_id} currentStage={lead.lead_stage ?? null} />
                   </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper lead={lead} queueType="whatsapp_reply" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} showMessage defaultCaller="Gargi" />
@@ -245,12 +255,12 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
           <table className="w-full text-sm text-left">
             <thead>
               <tr className="bg-purple-50/30 border-b text-xs text-gray-500 uppercase tracking-wider">
-                {UNIFIED_HEADERS.map(h => <th key={h} className={TH}>{h}</th>)}
+                {HEADERS.map(h => <th key={h} className={TH}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {discoveryQueueLeads.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">No discovery calls pending.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">No discovery calls pending.</td></tr>
               ) : discoveryQueueLeads.map((lead) => (
                 <tr key={lead.id} className="border-b hover:bg-gray-50/50">
                   <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} />
@@ -260,6 +270,9 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
                     {/* Callback date is shown inline in the lead cell — avoid duplicating it here */}
                     Updated {formatIST(lead.updated_at)}
                     <MaybeNote note={lastNoteMap[lead.id]} />
+                  </td>
+                  <td className={TH}>
+                    <MoveStageSelect leadId={lead.id} zohoLeadId={lead.zoho_lead_id} currentStage={lead.lead_stage ?? null} />
                   </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper lead={lead} queueType="discovery_call" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} defaultCaller="Gargi" />

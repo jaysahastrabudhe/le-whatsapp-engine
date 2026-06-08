@@ -37,6 +37,7 @@ export async function POST(request: Request) {
       .from('leads')
       .update({
         wa_state: 'replied_manual',
+        lead_stage: 'MQL++', // organic / manual-form replies enter as MQL++ (funnel algorithm)
         wa_hotness: 'hot', // Assume hot if they replied
         wa_last_inbound_at: nowIso, // surfaces in the inbound feed, sorted by recency
         followup_call_at: null,      // clear any stale scheduled callback

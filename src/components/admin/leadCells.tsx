@@ -77,8 +77,8 @@ export function timeRemaining(due: string): { label: string; breached: boolean }
 export function computeNoAnswerCount(logs: { contact_status: string }[]): number {
   let count = 0;
   for (const log of logs) {
-    // A connection, a scheduled callback, or a successful message touch ends the streak.
-    if (log.contact_status === 'answered' || log.contact_status === 'call_back_later' || log.contact_status === 'message_sent') break;
+    // A connection, callback, negative, or a successful message touch ends the streak.
+    if (['answered', 'call_back_later', 'message_sent', 'negative'].includes(log.contact_status)) break;
     if (log.contact_status === 'no_answer') count++;
   }
   return count;
