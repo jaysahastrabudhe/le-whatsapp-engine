@@ -248,13 +248,18 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
             <ul className="divide-y">
               {todayManualEvents.slice(0, 30).map((e, i) => {
                 const info = manualEntryNames[e.lead_id];
+                const p = (e as any).payload || {};
                 return (
-                  <li key={i} className="px-4 py-2 flex items-center justify-between text-sm">
-                    <span className="font-medium text-gray-800">{info?.name || '—'} <span className="text-gray-400 font-mono text-xs">{info?.phone || ''}</span></span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-[11px] font-semibold bg-sky-100 text-sky-700 rounded px-1.5 py-0.5">{(e as any).payload?.source || 'Other'}</span>
-                      <span className="text-xs text-gray-400">{formatIST(e.created_at)}</span>
-                    </span>
+                  <li key={i} className="px-4 py-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-800">{info?.name || '—'} <span className="text-gray-400 font-mono text-xs">{info?.phone || ''}</span></span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold bg-sky-100 text-sky-700 rounded px-1.5 py-0.5">{p.source || 'Other'}</span>
+                        <span className="text-xs text-gray-400">{formatIST(e.created_at)}</span>
+                      </span>
+                    </div>
+                    {p.message_sent && <div className="text-xs text-gray-500 mt-0.5"><span className="font-semibold text-gray-400">Sent:</span> {p.message_sent}</div>}
+                    {p.reply_received && <div className="text-xs text-gray-700 mt-0.5"><span className="font-semibold text-emerald-600">Reply:</span> {p.reply_received}</div>}
                   </li>
                 );
               })}

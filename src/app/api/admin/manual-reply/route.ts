@@ -5,12 +5,14 @@ import { normaliseIndianPhone } from '@/lib/utils/phoneNormaliser';
 export async function POST(request: Request) {
   const VALID_SOURCES = ['Direct WhatsApp', 'Instagram', 'Web Chat', 'Email'];
   try {
-    const { phone, source } = await request.json();
+    const { phone, source, messageSent, replyReceived } = await request.json();
 
     if (!phone) {
       return NextResponse.json({ error: 'Phone number is required' }, { status: 400 });
     }
     const replySource = VALID_SOURCES.includes(source) ? source : 'Web Chat';
+    const sentText  = typeof messageSent === 'string' ? messageSent.trim() : '';
+    const replyText = typeof replyReceived === 'string' ? replyReceived.trim() : '';
 
     const phoneNormalised = normaliseIndianPhone(phone);
     if (!phoneNormalised) {
@@ -55,14 +57,25 @@ export async function POST(request: Request) {
       throw updateError;
     }
 
-    // Record the source on a lead_event (no dedicated column; payload holds the source).
+    // Record source + the actual conversation (message sent / reply received) on the event.
     await supabase.from('lead_events').insert({
       lead_id: lead.id,
       event_type: 'manual_reply',
-      payload: { source: replySource, entered_at: nowIso },
+      payload: { source: replySource, entered_at: nowIso, message_sent: sentText || null, reply_received: replyText || null },
     }).then(({ error }) => {
       if (error) console.warn('[Manual Reply] could not record source event:', error.message);
     });
+
+    // Also log the conversation in the messages table so it appears in the Message Log
+    // and as a note. Outbound = what Jonathan sent; inbound = the lead's reply.
+    const msgRows: any[] = [];
+    if (sentText)  msgRows.push({ lead_id: lead.id, phone_normalised: phoneNormalised, direction: 'outbound', content: sentText,  status: 'sent',      sender_number: `manual:${replySource}`, sent_at: nowIso });
+    if (replyText) msgRows.push({ lead_id: lead.id, phone_normalised: phoneNormalised, direction: 'inbound',  content: replyText, status: 'received',  sender_number: `manual:${replySource}`, sent_at: nowIso });
+    if (msgRows.length > 0) {
+      await supabase.from('messages').insert(msgRows).then(({ error }) => {
+        if (error) console.warn('[Manual Reply] could not log messages:', error.message);
+      });
+    }
 
     return NextResponse.json({ success: true, lead, source: replySource });
   } catch (error: any) {

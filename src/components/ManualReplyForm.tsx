@@ -23,6 +23,8 @@ export default function ManualReplyForm() {
   const [results, setResults] = useState<LeadResult[]>([]);
   const [selected, setSelected] = useState<LeadResult | null>(null);
   const [source, setSource] = useState(SOURCES[0]);
+  const [messageSent, setMessageSent] = useState('');
+  const [replyReceived, setReplyReceived] = useState('');
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -89,7 +91,12 @@ export default function ManualReplyForm() {
       const res = await fetch('/api/admin/manual-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: selected.phone_normalised, source }),
+        body: JSON.stringify({
+          phone: selected.phone_normalised,
+          source,
+          messageSent: messageSent.trim() || undefined,
+          replyReceived: replyReceived.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add reply');
@@ -97,6 +104,8 @@ export default function ManualReplyForm() {
       setQuery('');
       setSelected(null);
       setResults([]);
+      setMessageSent('');
+      setReplyReceived('');
       router.refresh();
     } catch (err: any) {
       setMessage({ text: err.message, type: 'error' });
@@ -112,7 +121,8 @@ export default function ManualReplyForm() {
       <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-1">Manual Reply Entry</h2>
       <p className="text-xs text-gray-500 mb-4">Logged a reply from a lead (Instagram, Email, Direct WhatsApp…)? Pick the source and add them to Gargi&rsquo;s inbound box.</p>
 
-      <form onSubmit={handleSubmit} className="flex gap-3 items-start">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <div className="flex gap-3 items-start">
         <div className="w-44 shrink-0">
           <select
             value={source}
@@ -185,11 +195,36 @@ export default function ManualReplyForm() {
             </div>
           )}
         </div>
+        </div>
+
+        {/* Message sent + reply received — the actual conversation, both important */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Message sent <span className="text-gray-300">(optional)</span></label>
+            <textarea
+              value={messageSent}
+              onChange={(e) => setMessageSent(e.target.value)}
+              rows={2}
+              placeholder="What Jonathan sent…"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Reply received</label>
+            <textarea
+              value={replyReceived}
+              onChange={(e) => setReplyReceived(e.target.value)}
+              rows={2}
+              placeholder="What the lead replied…"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+            />
+          </div>
+        </div>
 
         <button
           type="submit"
           disabled={submitting || !selected}
-          className="bg-gray-900 text-white px-5 py-2 rounded-md font-medium text-sm hover:bg-gray-800 transition-colors disabled:opacity-40 whitespace-nowrap"
+          className="self-start bg-gray-900 text-white px-5 py-2 rounded-md font-medium text-sm hover:bg-gray-800 transition-colors disabled:opacity-40 whitespace-nowrap"
         >
           {submitting ? 'Adding…' : 'Add Reply'}
         </button>
