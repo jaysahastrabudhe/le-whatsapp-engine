@@ -84,6 +84,30 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
     .range(...rangeFor(discPage));
   const discoveryQueueLeads = discovery || [];
 
+  // ── Jonathan's entry station — manual replies entered today (IST) ────────
+  const istDayStart = new Date(
+    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T00:00:00+05:30'
+  ).toISOString();
+  const { data: todayManual } = await supabase
+    .from('lead_events')
+    .select('lead_id, payload, created_at')
+    .eq('event_type', 'manual_reply')
+    .gte('created_at', istDayStart)
+    .order('created_at', { ascending: false });
+  const todayManualEvents = todayManual || [];
+  const manualBySource: Record<string, number> = {};
+  for (const e of todayManualEvents) {
+    const s = (e as any).payload?.source || 'Other';
+    manualBySource[s] = (manualBySource[s] || 0) + 1;
+  }
+  const manualEntryNames: Record<string, { name: string | null; phone: string }> = {};
+  if (todayManualEvents.length > 0) {
+    const { data: mLeads } = await supabase
+      .from('leads').select('id, name, phone_normalised')
+      .in('id', todayManualEvents.map(e => e.lead_id));
+    for (const l of mLeads || []) manualEntryNames[l.id] = { name: l.name, phone: l.phone_normalised };
+  }
+
   // ── Call-log derived maps (Called tag, attempt count, last note) ─────────
   const { data: callLogData } = await supabase
     .from('call_logs')
@@ -107,7 +131,7 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">SLA Monitor</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Owned boxes — MQL (Sharjeel), Inbound &amp; Manual Replies (Gargi), Discovery (Gargi).
+            Owned boxes — MQL (Sharjeel), Manual Reply Entry (Jonathan), Inbound &amp; Calls (Gargi), Discovery (Gargi).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -196,18 +220,58 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
 
       <hr className="border-gray-200" />
 
-      {/* ── INBOUND & MANUAL REPLIES (entry: Jonathan · calling: Gargi) ─────── */}
+      {/* ── JONATHAN — MANUAL REPLY ENTRY STATION ──────────────────────────── */}
+      <section>
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <span className="w-2 h-2 rounded-full bg-sky-500" />
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Manual Reply Entry</h2>
+          <BoxOwner name="Jonathan" color="blue" />
+          <span className="text-xs text-gray-400 ml-1">Log replies from any channel — they flow to Gargi&apos;s call queue.</span>
+        </div>
+
+        <ManualReplyForm />
+
+        <div className="mt-4 bg-white border border-sky-200 rounded-lg overflow-hidden shadow-sm">
+          <div className="px-4 py-2.5 border-b bg-sky-50/50 flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Entered today</span>
+            <span className="text-xs font-bold text-sky-700">{todayManualEvents.length}</span>
+            {['Direct WhatsApp', 'Instagram', 'Web Chat', 'Email'].map(s => (
+              <span key={s} className="text-[11px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">{s}: {manualBySource[s] || 0}</span>
+            ))}
+          </div>
+          {todayManualEvents.length === 0 ? (
+            <div className="px-4 py-6 text-center text-gray-400 text-sm">No manual replies entered today yet.</div>
+          ) : (
+            <ul className="divide-y">
+              {todayManualEvents.slice(0, 30).map((e, i) => {
+                const info = manualEntryNames[e.lead_id];
+                return (
+                  <li key={i} className="px-4 py-2 flex items-center justify-between text-sm">
+                    <span className="font-medium text-gray-800">{info?.name || '—'} <span className="text-gray-400 font-mono text-xs">{info?.phone || ''}</span></span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold bg-sky-100 text-sky-700 rounded px-1.5 py-0.5">{(e as any).payload?.source || 'Other'}</span>
+                      <span className="text-xs text-gray-400">{formatIST(e.created_at)}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <hr className="border-gray-200" />
+
+      {/* ── GARGI — INBOUND & CALLS ─────────────────────────────────────────── */}
       <section>
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="w-2 h-2 rounded-full bg-emerald-500" />
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-            Inbound &amp; Manual Replies <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{inboundCount ?? 0}</span>
+            Inbound &amp; Calls <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{inboundCount ?? 0}</span>
           </h2>
-          <BoxOwner name="Jonathan · entry" color="gray" />
-          <BoxOwner name="Gargi · calling" color="purple" />
+          <BoxOwner name="Gargi" color="purple" />
+          <span className="text-xs text-gray-400 ml-1">MQL+ / MQL++ replies to call.</span>
         </div>
-
-        <div className="mb-4"><ManualReplyForm /></div>
 
         <div className="bg-white border border-emerald-200 rounded-lg overflow-hidden shadow-sm">
           <table className="w-full text-sm text-left">
