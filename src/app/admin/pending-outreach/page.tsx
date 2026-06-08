@@ -2,8 +2,8 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import CallLogWrapper from '@/components/CallLogWrapper';
 import {
-  TH, UNIFIED_HEADERS, PAGE_SIZE, formatIST, timeRemaining, buildLogMaps, istDayBounds,
-  MaybeNote, Pager, DateFilter, LeadCell, LeadStatusCell, HotnessCell,
+  TH, UNIFIED_HEADERS, PAGE_SIZE, formatIST, timeRemaining, buildLogMaps,
+  MaybeNote, Pager, LeadCell, LeadStatusCell, HotnessCell,
 } from '@/components/admin/leadCells';
 import { ChevronLeft } from 'lucide-react';
 
@@ -14,17 +14,14 @@ const BASE = '/admin/pending-outreach';
 export default async function PendingOutreachPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
   const page = Math.max(1, parseInt(sp.page || '1') || 1);
-  const dateFilter = sp.date;
-  const day = istDayBounds(dateFilter);
   const now = Date.now();
 
   // Call queue: call_queued + overdue call_follow_up
-  let cqQuery = supabase
+  const { data: callTracking } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, lead_status, wa_reply_class, created_at, wa_state, followup_call_at, wa_hotness')
-    .in('wa_state', ['call_queued', 'call_follow_up']);
-  if (day) cqQuery = cqQuery.gte('created_at', day.start).lte('created_at', day.end);
-  const { data: callTracking } = await cqQuery.order('created_at', { ascending: false });
+    .in('wa_state', ['call_queued', 'call_follow_up'])
+    .order('created_at', { ascending: false });
   const callQueueLeads = (callTracking || []).filter(l => {
     if (l.wa_state === 'call_queued') return true;
     if (l.wa_state === 'call_follow_up' && l.followup_call_at && new Date(l.followup_call_at).getTime() <= now) return true;
@@ -32,14 +29,13 @@ export default async function PendingOutreachPage({ searchParams }: { searchPara
   });
 
   // Active WhatsApp SLAs (open response timer, not terminal/escalated)
-  let activeQuery = supabase
+  const { data: active } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, owner_email, wa_hotness, wa_reply_class, lead_status, wa_human_response_due_at, followup_call_at')
     .not('wa_human_response_due_at', 'is', null)
     // NULL-safe exclusion: NOT IN drops NULL rows, so include them explicitly via .or
-    .or('wa_state.is.null,wa_state.not.in.("wa_closed","wa_idle","wa_sla_escalated","wa_sla_resolved","replied","replied_manual")');
-  if (day) activeQuery = activeQuery.gte('wa_human_response_due_at', day.start).lte('wa_human_response_due_at', day.end);
-  const { data: active } = await activeQuery.order('wa_human_response_due_at', { ascending: true });
+    .or('wa_state.is.null,wa_state.not.in.("wa_closed","wa_idle","wa_sla_escalated","wa_sla_resolved","replied","replied_manual")')
+    .order('wa_human_response_due_at', { ascending: true });
 
   const { data: callLogData } = await supabase
     .from('call_logs').select('lead_id, contact_status, caller, notes').order('called_at', { ascending: false });
@@ -63,15 +59,12 @@ export default async function PendingOutreachPage({ searchParams }: { searchPara
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <Link href="/admin/sla-monitor" className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 mb-2">
-            <ChevronLeft size={14} /> SLA Monitor
-          </Link>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Pending Outreach</h1>
-          <p className="text-sm text-gray-500 mt-1">Leads waiting to be called — the call queue plus active WhatsApp response SLAs.</p>
-        </div>
-        <DateFilter basePath={BASE} date={dateFilter} />
+      <div>
+        <Link href="/admin/sla-monitor" className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 mb-2">
+          <ChevronLeft size={14} /> SLA Monitor
+        </Link>
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Pending Outreach</h1>
+        <p className="text-sm text-gray-500 mt-1">Leads waiting to be called — the call queue plus active WhatsApp response SLAs.</p>
       </div>
 
       <section>

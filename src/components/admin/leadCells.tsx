@@ -5,29 +5,7 @@ import NoteTooltip from '@/components/NoteTooltip';
 import Link from 'next/link';
 
 export const TH = 'px-4 py-3';
-export const PAGE_SIZE = 15;
-
-// IST day [start,end] ISO bounds for a YYYY-MM-DD string (or null when no date chosen).
-export function istDayBounds(date?: string): { start: string; end: string } | null {
-  if (!date) return null;
-  return {
-    start: new Date(`${date}T00:00:00+05:30`).toISOString(),
-    end:   new Date(`${date}T23:59:59.999+05:30`).toISOString(),
-  };
-}
-
-// Date-filter control: a GET form that sets ?date= (resets pagers) + an "All dates" link.
-export function DateFilter({ basePath, date, label = 'Date' }: { basePath: string; date?: string; label?: string }) {
-  return (
-    <form className="flex items-center gap-1.5" action={basePath} method="get">
-      <span className="text-[11px] text-gray-400 uppercase tracking-wide">{label}</span>
-      <input type="date" name="date" defaultValue={date || ''}
-        className="border border-gray-300 rounded-md px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 outline-none" />
-      <button className="text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-md px-2 py-1 hover:bg-gray-50">Go</button>
-      {date && <Link href={basePath} className="text-xs text-gray-400 hover:text-gray-600 underline">All</Link>}
-    </form>
-  );
-}
+export const PAGE_SIZE = 30;
 
 // Date-wise pager. Server-rendered links that preserve every other box's page param.
 export function Pager({ basePath, params, pageParam, page, total, pageSize = PAGE_SIZE }: {
