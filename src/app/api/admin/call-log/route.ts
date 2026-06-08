@@ -69,15 +69,30 @@ export async function POST(request: Request) {
         updateFields.followup_call_at = nextActionDate;
         updateFields.updated_at = nowIso;
       } else {
-        // no_answer — count attempts; the 3rd unanswered attempt parks the lead as Cold.
-        const attempts = (noAnswerCount ?? 0) + 1;
-        if (attempts >= NO_ANSWER_LIMIT) {
-          updateFields.wa_state = WA_COLD;
-          updateFields.lead_status = 'Cold';
-          updateFields.followup_call_at = null;
-          updateFields.updated_at = nowIso;
+        // no_answer. Only unanswered CALLS count toward the ×3 → Cold limit; an unanswered
+        // message is a record-only touch (the row above is logged as 'message_no_reply').
+        if (!isMessage) {
+          // Recount consecutive no-answers from the DB (client noAnswerCount can be stale
+          // under concurrent operators). The current log row is already inserted above.
+          const { data: recent } = await supabase
+            .from('call_logs')
+            .select('contact_status')
+            .eq('lead_id', leadId)
+            .order('called_at', { ascending: false })
+            .limit(20);
+          let consecutive = 0;
+          for (const r of recent ?? []) {
+            if (['answered', 'call_back_later', 'message_sent', 'negative'].includes(r.contact_status)) break;
+            if (r.contact_status === 'no_answer') consecutive++;
+          }
+          if (consecutive >= NO_ANSWER_LIMIT) {
+            updateFields.wa_state = WA_COLD;
+            updateFields.lead_status = 'Cold';
+            updateFields.followup_call_at = null;
+            updateFields.updated_at = nowIso;
+          }
+          // else: leave in place, do not bump updated_at (preserve queue position)
         }
-        // else: leave the lead in place, do not bump updated_at (preserve queue position)
       }
     } else if (nextAction === 'close_lead') {
       updateFields.wa_state = 'wa_closed';
@@ -137,15 +152,10 @@ export async function POST(request: Request) {
     if (zohoLeadId && !isContactsModule) {
       // 3a. Field writeback — Lead_Stage, Lead_Status (awaited)
       if (effStage || effStatus) {
-        try {
-          await updateZohoLead(zohoLeadId, {
-            ...(effStage  && { Lead_Stage:  effStage }),
-            ...(effStatus && { Lead_Status: effStatus }),
-          });
-        } catch (e: any) {
-          console.error('[Call Log] Zoho field writeback failed:', e.message);
-          zohoFieldsOk = false;
-        }
+        zohoFieldsOk = await updateZohoLead(zohoLeadId, {
+          ...(effStage  && { Lead_Stage:  effStage }),
+          ...(effStatus && { Lead_Status: effStatus }),
+        });
       }
 
       // 3b. Note writeback (awaited)

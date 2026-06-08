@@ -23,7 +23,9 @@ export default function MoveStageSelect({ leadId, zohoLeadId, currentStage }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadId, zohoLeadId, stage: next }),
       });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Move failed'); }
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || 'Move failed');
+      if (d.warning) alert(d.warning); // saved locally but Zoho rejected (e.g. picklist missing)
       router.refresh();
     } catch (e: any) {
       setStage(prev);

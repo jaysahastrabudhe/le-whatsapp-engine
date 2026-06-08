@@ -24,9 +24,12 @@ function formatIST(ts: string) {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  answered:       'bg-green-100 text-green-800',
-  no_answer:      'bg-red-100 text-red-800',
-  call_back_later:'bg-yellow-100 text-yellow-800',
+  answered:        'bg-green-100 text-green-800',
+  no_answer:       'bg-red-100 text-red-800',
+  call_back_later: 'bg-yellow-100 text-yellow-800',
+  negative:        'bg-rose-100 text-rose-800',
+  message_sent:    'bg-blue-100 text-blue-800',
+  message_no_reply:'bg-gray-100 text-gray-600',
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -60,7 +63,9 @@ export default async function DailyCallsPage({
   const { data: historyRows } = await supabase
     .from('call_logs')
     .select('called_at')
-    .gte('called_at', cutoff);
+    .gte('called_at', cutoff)
+    // Exclude message-channel logs — this is a CALLS report.
+    .not('contact_status', 'in', '("message_sent","message_no_reply")');
   const countByDay: Record<string, number> = {};
   for (const r of historyRows || []) countByDay[toISTDate(r.called_at)] = (countByDay[toISTDate(r.called_at)] || 0) + 1;
   const historyDays = Array.from({ length: 14 }, (_, i) => {
@@ -73,6 +78,7 @@ export default async function DailyCallsPage({
     .select('id, caller, called_at, contact_status, notes, next_action, next_action_date, lead_id, leads!lead_id(name, phone_normalised, lead_stage, lead_status)')
     .gte('called_at', start)
     .lte('called_at', end)
+    .not('contact_status', 'in', '("message_sent","message_no_reply")')
     .order('called_at', { ascending: false });
 
   const rows = (logs || []) as any[];

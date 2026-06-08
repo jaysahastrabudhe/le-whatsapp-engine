@@ -20,13 +20,18 @@ export async function POST(request: Request) {
     // Look up lead
     const { data: lead, error: fetchError } = await supabase
       .from('leads')
-      .select('id, name, phone_normalised, zoho_lead_id')
+      .select('id, name, phone_normalised, zoho_lead_id, lead_stage')
       .eq('phone_normalised', phoneNormalised)
       .single();
 
     if (fetchError || !lead) {
       return NextResponse.json({ error: 'Lead not found in Supabase database. Are they synced?' }, { status: 404 });
     }
+
+    // A manual reply enters as MQL++ — but never DOWNGRADE a more-advanced lead
+    // (MQL+++ / SQL already past this rung). Only set MQL++ from earlier stages.
+    const ADVANCED = ['MQL+++', 'SQL'];
+    const nextStage = ADVANCED.includes(lead.lead_stage) ? lead.lead_stage : 'MQL++';
 
     // Route the reply into Gargi's "Inbound & Manual Replies" box. We use a DISTINCT
     // state 'replied_manual' (not 'replied') so the re-engagement cron — which targets
@@ -37,7 +42,7 @@ export async function POST(request: Request) {
       .from('leads')
       .update({
         wa_state: 'replied_manual',
-        lead_stage: 'MQL++', // organic / manual-form replies enter as MQL++ (funnel algorithm)
+        lead_stage: nextStage, // MQL++ (funnel algorithm) unless already further along
         wa_hotness: 'hot', // Assume hot if they replied
         wa_last_inbound_at: nowIso, // surfaces in the inbound feed, sorted by recency
         followup_call_at: null,      // clear any stale scheduled callback

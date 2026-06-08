@@ -20,11 +20,16 @@ export function positiveCallTarget(currentStage: string | null): FunnelStage {
   return 'MQL+++';
 }
 
-// wa_state that backs each funnel stage in the SLA-monitor boxes.
+// wa_state that backs each funnel stage in the SLA-monitor boxes. Defined for EVERY
+// movable stage so a manual "move to stage" always lands the lead in exactly one box
+// (a stale engaged wa_state would otherwise orphan it or double-list it).
 export function waStateForStage(stage: string): string | null {
   switch (stage) {
+    case 'MQL':    return 'wa_pending';         // Sharjeel cold-outreach box
+    case 'MQL+':   return 'replied';            // Gargi inbound box (genuine reply)
+    case 'MQL++':  return 'replied_manual';     // Gargi inbound box (manual/organic)
     case 'MQL+++': return 'discovery_call';     // box 3 — Gargi decides
     case 'SQL':    return 'wa_sla_resolved';    // won / discovery booked
-    default:       return null;                  // MQL / MQL+ / MQL++ keep their queue state
+    default:       return null;
   }
 }

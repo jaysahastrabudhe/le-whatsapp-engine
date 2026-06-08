@@ -61,7 +61,7 @@ export default function CallLogModal({
     const contactStatus =
       outcome === 'positive' ? (isMessage ? 'message_sent' : 'answered')
       : outcome === 'negative' ? 'negative'
-      : outcome === 'no_answer' ? 'no_answer'
+      : outcome === 'no_answer' ? (isMessage ? 'message_no_reply' : 'no_answer')
       : 'call_back_later';
 
     setLoading(true);
@@ -96,7 +96,7 @@ export default function CallLogModal({
     ? [
         { value: 'positive', label: '✓ Positive reply', hint: positiveEffect, tone: 'emerald' },
         { value: 'negative', label: '✗ Negative', hint: '→ Junk (disqualified).', tone: 'red' },
-        { value: 'no_answer', label: 'No reply', hint: willGoCold ? `${attemptsAfter} no-replies → Cold` : 'Stays in box (no change).', tone: 'gray' },
+        { value: 'no_answer', label: 'No reply', hint: 'Record-only — stays in box.', tone: 'gray' },
       ]
     : [
         { value: 'positive', label: '✓ Positive', hint: positiveEffect, tone: 'emerald' },

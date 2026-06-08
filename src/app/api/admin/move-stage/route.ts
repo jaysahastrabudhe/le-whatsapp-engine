@@ -18,28 +18,32 @@ export async function POST(request: Request) {
 
     const update: Record<string, any> = {
       lead_stage: stage,
+      followup_call_at: null,   // clear any stale callback so the lead lands cleanly
       zoho_synced_at: null,
       updated_at: new Date().toISOString(),
     };
-    // Align the engagement state with the stage so the lead lands in the right box.
+    // Align the engagement state with the stage so the lead lands in exactly one box
+    // (waStateForStage now returns a value for every movable stage — no stale wa_state).
     const wa = waStateForStage(stage);
     if (wa) update.wa_state = wa;
 
     const { error } = await supabase.from('leads').update(update).eq('id', leadId);
     if (error) throw error;
 
-    // Push to Zoho (best-effort — reconcile cron retries on failure).
+    // Push to Zoho. zoho_synced_at stays null (set above) so the reconcile cron retries
+    // if this fails (e.g. the MQL+ picklist value isn't configured in Zoho yet).
     let zohoOk = true;
     if (zohoLeadId) {
-      try {
-        await updateZohoLead(zohoLeadId, { Lead_Stage: stage });
-      } catch (e: any) {
-        console.warn('[Move Stage] Zoho writeback failed:', e.message);
-        zohoOk = false;
-      }
+      zohoOk = await updateZohoLead(zohoLeadId, { Lead_Stage: stage });
     }
 
-    return NextResponse.json({ success: true, stage, zohoWritten: zohoOk });
+    // Surface a partial result so the UI can warn instead of falsely reporting success.
+    return NextResponse.json({
+      success: true,
+      stage,
+      zohoWritten: zohoOk,
+      ...(zohoLeadId && !zohoOk && { warning: `Saved locally; Zoho rejected stage "${stage}" (check the Lead_Stage picklist). Will retry on reconcile.` }),
+    });
   } catch (error: any) {
     console.error('[Move Stage] Error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });

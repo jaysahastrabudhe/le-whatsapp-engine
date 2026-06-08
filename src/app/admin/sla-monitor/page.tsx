@@ -34,8 +34,10 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at', { count: 'exact' })
     .eq('lead_stage', 'MQL')
     .or(`lead_status.is.null,lead_status.not.in.${excludeList}`)
-    // Exclude leads that have already engaged/advanced — they belong in the other boxes.
-    .not('wa_state', 'in', '("replied","replied_manual","wa_sla_escalated","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")')
+    // Exclude leads that have already engaged/advanced (replied, hot, queued, scheduled,
+    // closed, etc.) — they belong in Gargi's inbound box, Pending Outreach, or are done.
+    // Null-safe (NOT IN drops NULLs) so MQL leads with no wa_state still show.
+    .or('wa_state.is.null,wa_state.not.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture","call_queued","call_follow_up","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")')
     .order('updated_at', { ascending: false })
     .range(...rangeFor(mqlPage));
   const mqlOutreachLeads = mqlLeads || [];
@@ -50,7 +52,7 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
   const { data: inbound, count: inboundCount } = await supabase
     .from('leads')
     .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, wa_last_inbound_at, followup_call_at, wa_state', { count: 'exact' })
-    .or('lead_stage.in.("MQL+","MQL++"),wa_state.in.("replied","replied_manual","wa_sla_escalated")')
+    .or('lead_stage.in.("MQL+","MQL++"),wa_state.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture")')
     .order('wa_last_inbound_at', { ascending: false, nullsFirst: false })
     .range(...rangeFor(inboundPage));
   const inboundLeads = inbound || [];

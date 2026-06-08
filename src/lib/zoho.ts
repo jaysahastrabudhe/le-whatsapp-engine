@@ -123,9 +123,9 @@ export async function createZohoTask(zohoLeadId: string, subject: string, descri
 /**
  * Updates a lead record in Zoho CRM.
  */
-export async function updateZohoLead(zohoLeadId: string, fields: ZohoUpdatePayload) {
+export async function updateZohoLead(zohoLeadId: string, fields: ZohoUpdatePayload): Promise<boolean> {
   const token = await getZohoAccessToken();
-  if (!token) return;
+  if (!token) return false;
 
   console.log(`[Zoho Writeback] Updating lead ${zohoLeadId}...`);
 
@@ -143,18 +143,22 @@ export async function updateZohoLead(zohoLeadId: string, fields: ZohoUpdatePaylo
     });
 
     if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(`Zoho API Error: ${res.status} ${JSON.stringify(errData)}`);
+      const errData = await res.json().catch(() => ({}));
+      console.error(`[Zoho Writeback] API error ${res.status} for ${zohoLeadId}:`, JSON.stringify(errData));
+      return false;
     }
 
     const result = await res.json();
-    if (result.data && result.data[0].status === 'success') {
+    if (result.data && result.data[0]?.status === 'success') {
       console.log(`[Zoho Writeback] Successfully updated lead ${zohoLeadId}`);
-    } else {
-      console.warn(`[Zoho Writeback] Update response for ${zohoLeadId}:`, JSON.stringify(result));
+      return true;
     }
+    // e.g. an invalid picklist value (MQL+ not in the Lead_Stage options) → not "success"
+    console.warn(`[Zoho Writeback] Non-success response for ${zohoLeadId}:`, JSON.stringify(result));
+    return false;
   } catch (err) {
     console.error(`[Zoho Writeback] Failed to update lead ${zohoLeadId}:`, err);
+    return false;
   }
 }
 
