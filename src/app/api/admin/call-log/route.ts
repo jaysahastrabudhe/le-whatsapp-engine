@@ -53,7 +53,12 @@ export async function POST(request: Request) {
         updateFields.updated_at = nowIso;
       } else if (outcome === 'positive') {
         if (isMessage) {
-          // MQL message positive → unlock Sharjeel's call; record-only, stays in box.
+          // A positive reply to a message = the lead replied → MQL+ (Gargi's inbound box).
+          updateFields.wa_state = 'replied';
+          updateFields.lead_stage = 'MQL+';
+          updateFields.wa_last_inbound_at = nowIso;
+          updateFields.followup_call_at = null;
+          updateFields.updated_at = nowIso;
         } else {
           // Positive call advances the funnel: MQL/MQL+/MQL++ → MQL+++, MQL+++ → SQL.
           const target = positiveCallTarget(currentStage);

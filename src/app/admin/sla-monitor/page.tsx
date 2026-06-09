@@ -8,6 +8,7 @@ import {
   MaybeNote, BoxOwner, Pager, LeadCell, LeadStatusCell, HotnessCell,
 } from '@/components/admin/leadCells';
 import MoveStageSelect from '@/components/admin/MoveStageSelect';
+import MessageSentButton from '@/components/admin/MessageSentButton';
 import { ChevronRight } from 'lucide-react';
 
 export const revalidate = 0;
@@ -21,6 +22,7 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
   const nowIso = new Date().toISOString();
   const pageOf = (key: string) => Math.max(1, parseInt(sp[key] || '1') || 1);
   const mqlPage = pageOf('mql_page');
+  const awaitPage = pageOf('await_page');
   const inboundPage = pageOf('inbound_page');
   const discPage = pageOf('disc_page');
   const rangeFor = (p: number) => [(p - 1) * PAGE_SIZE, (p - 1) * PAGE_SIZE + PAGE_SIZE - 1] as const;
@@ -40,7 +42,7 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
     // Exclude leads that have already engaged/advanced (replied, hot, queued, scheduled,
     // closed, etc.) — they belong in Gargi's inbound box, Pending Outreach, or are done.
     // Null-safe (NOT IN drops NULLs) so MQL leads with no wa_state still show.
-    .or('wa_state.is.null,wa_state.not.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture","call_queued","call_follow_up","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")')
+    .or('wa_state.is.null,wa_state.not.in.("replied","replied_manual","wa_sla_escalated","wa_hot","wa_nurture","wa_msg_sent","call_queued","call_follow_up","discovery_call","wa_cold","wa_junk","wa_closed","wa_sla_resolved","wa_idle")')
     .order('updated_at', { ascending: false })
     .range(...rangeFor(mqlPage));
   const mqlOutreachLeads = mqlLeads || [];
@@ -86,6 +88,15 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
     .order('created_at', { ascending: false })
     .range(...rangeFor(discPage));
   const discoveryQueueLeads = discovery || [];
+
+  // ── Awaiting Reply (owner: Sharjeel) — MQLs he messaged, reply not yet in ───
+  const { data: awaiting, count: awaitCount } = await supabase
+    .from('leads')
+    .select('id, name, phone_normalised, zoho_lead_id, lead_stage, lead_status, wa_hotness, wa_reply_class, updated_at, followup_call_at, wa_state', { count: 'exact' })
+    .eq('wa_state', 'wa_msg_sent')
+    .order('updated_at', { ascending: false })
+    .range(...rangeFor(awaitPage));
+  const awaitingLeads = awaiting || [];
 
   // ── Jonathan's entry station — manual replies entered today (IST) ────────
   const istDayStart = new Date(
@@ -210,6 +221,54 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
                   <td className={TH}>
                     <MoveStageSelect leadId={lead.id} zohoLeadId={lead.zoho_lead_id} currentStage={lead.lead_stage ?? null} />
                   </td>
+                  <td className={TH}>
+                    <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                      <MessageSentButton leadId={lead.id} caller="Sharjeel" />
+                      <CallLogWrapper lead={lead} queueType="mql_outreach" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} showMessage defaultCaller="Sharjeel" />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pager basePath={BASE} params={sp} pageParam="mql_page" page={mqlPage} total={mqlCount ?? 0} />
+        </div>
+      </section>
+
+      <hr className="border-gray-200" />
+
+      {/* ── AWAITING REPLY (Sharjeel) — messaged MQLs, reply not yet in ─────── */}
+      <section>
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <span className="w-2 h-2 rounded-full bg-sky-400" />
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+            Awaiting Reply <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">{awaitCount ?? 0}</span>
+          </h2>
+          <BoxOwner name="Sharjeel" color="blue" />
+          <span className="text-xs text-gray-400 ml-1">Messaged — log the reply when it comes (Positive → MQL+, Negative → Junk).</span>
+        </div>
+        <div className="bg-white border border-sky-200 rounded-lg overflow-hidden shadow-sm">
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="bg-sky-50/40 border-b text-xs text-gray-500 uppercase tracking-wider">
+                {HEADERS.map(h => <th key={h} className={TH}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {awaitingLeads.length === 0 ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">No leads awaiting a reply.</td></tr>
+              ) : awaitingLeads.map((lead) => (
+                <tr key={lead.id} className="border-b hover:bg-sky-50/20">
+                  <LeadCell lead={lead} noAnswerCount={noAnswerCountMap[lead.id] ?? 0} called={calledSet.has(lead.id)} />
+                  <LeadStatusCell status={lead.lead_status} />
+                  <HotnessCell hotness={lead.wa_hotness} />
+                  <td className={TH + ' text-xs text-gray-500'}>
+                    Sent {formatIST(lead.updated_at)}
+                    <MaybeNote note={lastNoteMap[lead.id]} />
+                  </td>
+                  <td className={TH}>
+                    <MoveStageSelect leadId={lead.id} zohoLeadId={lead.zoho_lead_id} currentStage={lead.lead_stage ?? null} />
+                  </td>
                   <td className={TH + ' text-right'}>
                     <CallLogWrapper lead={lead} queueType="mql_outreach" noAnswerCount={noAnswerCountMap[lead.id] ?? 0} showMessage defaultCaller="Sharjeel" />
                   </td>
@@ -217,7 +276,7 @@ export default async function SLAMonitorPage({ searchParams }: { searchParams: P
               ))}
             </tbody>
           </table>
-          <Pager basePath={BASE} params={sp} pageParam="mql_page" page={mqlPage} total={mqlCount ?? 0} />
+          <Pager basePath={BASE} params={sp} pageParam="await_page" page={awaitPage} total={awaitCount ?? 0} />
         </div>
       </section>
 

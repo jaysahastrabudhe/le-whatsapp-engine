@@ -8,9 +8,10 @@ export type FunnelStage = (typeof FUNNEL_STAGES)[number];
 export const MOVABLE_STAGES: string[] = ['MQL', 'MQL+', 'MQL++', 'MQL+++', 'SQL'];
 
 // Engagement end-states (stored in wa_state).
-export const WA_COLD = 'wa_cold';   // no pickup after 3 attempts — re-engageable
-export const WA_JUNK = 'wa_junk';   // negative response — disqualified
-export const NO_ANSWER_LIMIT = 3;   // no-answer ×3 → Cold
+export const WA_COLD = 'wa_cold';        // no pickup after 3 attempts — re-engageable
+export const WA_JUNK = 'wa_junk';        // negative response — disqualified
+export const WA_MSG_SENT = 'wa_msg_sent'; // Sharjeel messaged the MQL — awaiting a reply
+export const NO_ANSWER_LIMIT = 3;        // no-answer ×3 → Cold
 
 // A positive CALL advances the lead one rung toward SQL.
 // MQL / MQL+ / MQL++  --positive call-->  MQL+++   (Gargi's decision box)
