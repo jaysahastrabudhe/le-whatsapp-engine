@@ -7,6 +7,10 @@ import { logRoutingEvent, RoutingTrigger } from './eventLogger';
 
 const PRIMARY_SENDER = '+917709333161';
 
+// UTILITY form-fill confirmation (HX3f2c109c…) — preferred first touch once Meta
+// approves it. Meta does not frequency-cap UTILITY templates → ~100% delivery.
+const UTILITY_FIRST_TOUCH_TEMPLATE = 'wa_enquiry_received';
+
 export async function handleOptOut(leadId: string) {
   console.log(`[Rules Engine] Processing STOP/Opt-Out for lead ${leadId}`);
   const { error } = await supabase
@@ -110,7 +114,21 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
   }
 
   // ── Resolve SID ───────────────────────────────────────────────────────────
-  const contentSid = await getTwilioTemplateSid(action.templateName);
+  // First-touch preference: the UTILITY enquiry confirmation (form-fill receipt).
+  // Meta does not frequency-cap UTILITY templates, so it delivers ~100% — the
+  // MARKETING welcomes were losing 35–50% of first messages to error 63049.
+  // getTwilioTemplateSid only returns APPROVED templates, so this self-activates
+  // once Meta approves wa_enquiry_received and silently falls back to the
+  // graph-selected marketing welcome until then. The persona-routed marketing
+  // content then rides the follow-up chain / the reply session instead.
+  let templateName = action.templateName;
+  let contentSid = await getTwilioTemplateSid(UTILITY_FIRST_TOUCH_TEMPLATE);
+  if (contentSid) {
+    templateName = UTILITY_FIRST_TOUCH_TEMPLATE;
+    console.log(`[Rules Engine] UTILITY first-touch ${UTILITY_FIRST_TOUCH_TEMPLATE} for lead ${lead.id} (graph suggested ${action.templateName}).`);
+  } else {
+    contentSid = await getTwilioTemplateSid(action.templateName);
+  }
   if (!contentSid) {
     console.error(`[Rules Engine] Unknown template "${action.templateName}" — no SID in Supabase/Twilio. Marking unrouted.`);
     await markUnrouted(lead, trigger, `No SID for template "${action.templateName}"`);
@@ -118,14 +136,14 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
   }
 
   // ── Enqueue ───────────────────────────────────────────────────────────────
-  console.log(`[Rules Engine] Enqueueing ${action.templateName} (${contentSid}) → ${lead.phone_normalised}`);
+  console.log(`[Rules Engine] Enqueueing ${templateName} (${contentSid}) → ${lead.phone_normalised}`);
 
   await logRoutingEvent(lead.id, {
     trigger,
     graph_used: true,
     lead_source: lead.lead_source ?? null,
     persona: lead.persona ?? null,
-    template_selected: action.templateName,
+    template_selected: templateName,
     template_sid: contentSid,
     reason: action.reason,
   });
@@ -134,7 +152,7 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
     to: lead.phone_normalised,
     from: PRIMARY_SENDER,
     contentSid,
-    templateName: action.templateName,
+    templateName,
     leadId: lead.id,
     contentVariables: JSON.stringify({ '1': lead.name || 'there' }),
   });
@@ -144,7 +162,7 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
     .update({
       wa_state: 'first_sent',
       wa_last_outbound_at: new Date().toISOString(),
-      wa_last_template: action.templateName,
+      wa_last_template: templateName,
       updated_at: new Date().toISOString(),
     })
     .eq('id', lead.id);
