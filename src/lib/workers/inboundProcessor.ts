@@ -19,6 +19,10 @@ const BUTTON_MAP: Record<string, { replyClass: string; hotness: string; waState:
   // wa_webinar_cta buttons
   WEBINAR_YES: { replyClass: 'interested', hotness: 'warm', waState: 'wa_hot'    },
   WEBINAR_NO:  { replyClass: 'not_now',    hotness: 'cold', waState: 'wa_nurture' },
+  // wa_followup_1_v2 buttons
+  'Call me today': { replyClass: 'interested', hotness: 'hot',  waState: 'call_queued' },
+  'Send brochure': { replyClass: 'interested', hotness: 'warm', waState: 'wa_hot'      },
+  'Not now':       { replyClass: 'not_now',    hotness: 'cold', waState: 'wa_nurture'  },
 };
 
 // Track-selector buttons that also write lead_track
@@ -196,14 +200,36 @@ export async function processInboundMessage(job: { data: Record<string, string> 
 
   // ── Post-classification actions ───────────────────────────────────────────
 
+  // ── Auto-send brochure when lead taps "Send brochure" ────────────────────
+  if (ButtonPayload === 'Send brochure') {
+    const brochureSid = await getTwilioTemplateSid('wa_brochure');
+    if (brochureSid) {
+      const name = lead?.name ?? currentLead?.name ?? 'there';
+      await enqueueOutboundMessage({
+        to:               cleanPhone,
+        from:             PRIMARY_SENDER,
+        contentSid:       brochureSid,
+        templateName:     'wa_brochure',
+        leadId:           lead?.id || currentLead?.id,
+        contentVariables: JSON.stringify({ '1': name }),
+      });
+      console.log(`[InboundProcessor] Auto-sent wa_brochure → ${cleanPhone}`);
+    } else {
+      console.warn(`[InboundProcessor] wa_brochure not approved yet — brochure not sent to ${cleanPhone}`);
+    }
+  }
+
   // Send wa_counsellor_intro for interested / fee_question / track-selector taps
   const sendCounsellor =
     replyClass === 'interested' ||
     replyClass === 'fee_question' ||
     !!TRACK_BUTTONS[ButtonPayload ?? ''];
 
-  // P4.3: suppress wa_counsellor_intro for webinar campaign replies
-  const suppressCounsellor = currentLead?.wa_last_template === 'wa_webinar_cta';
+  // Suppress counsellor intro when we already sent the brochure (different auto-response)
+  // or for webinar campaign replies
+  const suppressCounsellor =
+    ButtonPayload === 'Send brochure' ||
+    currentLead?.wa_last_template === 'wa_webinar_cta';
 
   if (sendCounsellor && !suppressCounsellor) {
     const track = leadTrackUpdate ?? currentLead?.lead_track ?? null;
