@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 export const FOLLOWUP_DEFAULTS = {
   rule5_enabled:    true,
   rule5_delay_hours: 24,
-  rule5_template:   'wa_followup_1',
+  rule5_template:   'wa_followup_1_v2',
   rule6_enabled:    true,
   rule6_delay_hours: 48,
   rule6a_template:  'wa_track_selector',
