@@ -68,7 +68,73 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
     return;
   }
 
-  // ── Graph evaluation ──────────────────────────────────────────────────────
+  // ── Universal UTILITY first-touch ─────────────────────────────────────────
+  // EVERY new lead gets the enquiry-confirmation receipt (wa_enquiry_received)
+  // before any graph routing. It's a transactional form-fill receipt: UTILITY
+  // category → not subject to Meta's marketing frequency cap → ~100% delivery.
+  // The graph still runs afterwards, but only for FILTERING decisions (close →
+  // manual triage); its marketing welcome is NOT sent — that content now rides
+  // the follow-up chain / the reply session. If the utility template is ever
+  // unapproved/unresolvable this whole block is skipped and the legacy
+  // graph-driven welcome flow below takes over unchanged.
+  const utilitySid = await getTwilioTemplateSid(UTILITY_FIRST_TOUCH_TEMPLATE);
+  if (utilitySid) {
+    console.log(`[Rules Engine] Universal UTILITY first-touch → ${lead.phone_normalised}`);
+
+    await logRoutingEvent(lead.id, {
+      trigger,
+      graph_used: false,
+      lead_source: lead.lead_source ?? null,
+      persona: lead.persona ?? null,
+      template_selected: UTILITY_FIRST_TOUCH_TEMPLATE,
+      template_sid: utilitySid,
+      reason: 'utility_first_touch',
+    });
+
+    await enqueueOutboundMessage({
+      to: lead.phone_normalised,
+      from: PRIMARY_SENDER,
+      contentSid: utilitySid,
+      templateName: UTILITY_FIRST_TOUCH_TEMPLATE,
+      leadId: lead.id,
+      contentVariables: JSON.stringify({ '1': lead.name || 'there' }),
+    });
+
+    await supabase
+      .from('leads')
+      .update({
+        wa_state: 'first_sent',
+        wa_last_outbound_at: new Date().toISOString(),
+        wa_last_template: UTILITY_FIRST_TOUCH_TEMPLATE,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', lead.id);
+
+    // Graph still decides filtering: closed leads go to manual triage (they keep
+    // their receipt, but exit the automated follow-up chain).
+    const { data: wf } = await supabase
+      .from('workflow_rules')
+      .select('*')
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .single();
+    if (wf) {
+      const filterAction = evaluateWorkflowGraph(
+        'wa_pending', // evaluate as a fresh lead — we already flipped wa_state above
+        lead,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        wf.conditions_json as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        wf.actions_json as any
+      );
+      if (filterAction.type === 'close') {
+        console.log(`[Rules Engine] Lead ${lead.id} filtered post-receipt — ${filterAction.reason}`);
+        await supabase.from('leads').update({ wa_state: 'wa_manual_triage', updated_at: new Date().toISOString(), zoho_synced_at: null }).eq('id', lead.id);
+      }
+    }
+    return;
+  }
+
+  // ── Graph evaluation (legacy fallback — utility template unavailable) ──────
   const { data: workflow, error } = await supabase
     .from('workflow_rules')
     .select('*')
@@ -113,22 +179,9 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
     return;
   }
 
-  // ── Resolve SID ───────────────────────────────────────────────────────────
-  // First-touch preference: the UTILITY enquiry confirmation (form-fill receipt).
-  // Meta does not frequency-cap UTILITY templates, so it delivers ~100% — the
-  // MARKETING welcomes were losing 35–50% of first messages to error 63049.
-  // getTwilioTemplateSid only returns APPROVED templates, so this self-activates
-  // once Meta approves wa_enquiry_received and silently falls back to the
-  // graph-selected marketing welcome until then. The persona-routed marketing
-  // content then rides the follow-up chain / the reply session instead.
-  let templateName = action.templateName;
-  let contentSid = await getTwilioTemplateSid(UTILITY_FIRST_TOUCH_TEMPLATE);
-  if (contentSid) {
-    templateName = UTILITY_FIRST_TOUCH_TEMPLATE;
-    console.log(`[Rules Engine] UTILITY first-touch ${UTILITY_FIRST_TOUCH_TEMPLATE} for lead ${lead.id} (graph suggested ${action.templateName}).`);
-  } else {
-    contentSid = await getTwilioTemplateSid(action.templateName);
-  }
+  // ── Resolve SID (legacy path: utility template was unavailable above) ──────
+  const templateName = action.templateName;
+  const contentSid = await getTwilioTemplateSid(action.templateName);
   if (!contentSid) {
     console.error(`[Rules Engine] Unknown template "${action.templateName}" — no SID in Supabase/Twilio. Marking unrouted.`);
     await markUnrouted(lead, trigger, `No SID for template "${action.templateName}"`);

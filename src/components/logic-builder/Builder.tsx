@@ -203,8 +203,9 @@ export default function LogicBuilderCanvas() {
         <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-2 text-xs text-emerald-900 z-10 flex items-center gap-2">
           <span className="font-bold uppercase tracking-wide text-emerald-700">First-touch override active</span>
           <span>
-            All “Send Template” actions below deliver <code className="font-mono bg-emerald-100 px-1 rounded">wa_enquiry_received</code> (UTILITY · ~100% delivery)
-            as the first message. The graph still routes and filters leads — its templates are used only as fallback if the utility template loses approval.
+            Every new lead receives <code className="font-mono bg-emerald-100 px-1 rounded">wa_enquiry_received</code> (UTILITY · ~100% delivery)
+            as their first message, before this graph runs. The graph below only decides filtering (End/Stop → manual triage) — its “Send Template”
+            actions are fallback, used solely if the utility template loses Meta approval.
           </span>
         </div>
       )}
