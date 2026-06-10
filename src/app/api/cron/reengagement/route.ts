@@ -177,6 +177,50 @@ export async function GET(request: Request) {
     }
   }
 
+  // ── Rule 7: nurture re-engagement (7 days after going cold) ─────────────
+  const RULE7_DELAY_HOURS = 168; // 7 days
+  const RULE7_TEMPLATE    = 'wa_track_selector';
+  const rule7cutoff = new Date(now - RULE7_DELAY_HOURS * 60 * 60 * 1000).toISOString();
+
+  const { data: rule7Leads } = await supabase
+    .from('leads')
+    .select('id, phone_normalised, name')
+    .eq('wa_state', 'wa_nurture')
+    .eq('wa_opt_in', true)
+    .lt('wa_last_inbound_at', rule7cutoff)
+    .or('wa_last_outbound_at.is.null,wa_last_outbound_at.lt.wa_last_inbound_at')
+    .limit(50);
+
+  for (const lead of rule7Leads ?? []) {
+    try {
+      const contentSid = await getTwilioTemplateSid(RULE7_TEMPLATE);
+      if (!contentSid) {
+        console.warn(`[Cron Rule7] ${RULE7_TEMPLATE} SID not found — skipping ${lead.phone_normalised}`);
+        continue;
+      }
+
+      await supabase
+        .from('leads')
+        .update({
+          wa_last_outbound_at: new Date().toISOString(),
+          wa_last_template:    RULE7_TEMPLATE,
+        })
+        .eq('id', lead.id);
+
+      await enqueueOutboundMessage({
+        to:               lead.phone_normalised,
+        from:             PRIMARY_SENDER,
+        contentSid,
+        templateName:     RULE7_TEMPLATE,
+        leadId:           lead.id,
+        contentVariables: JSON.stringify({ '1': lead.name ?? 'there' }),
+      });
+      results.push(`rule7:${lead.phone_normalised}`);
+    } catch (err) {
+      console.error(`[Cron Rule7] Failed for ${lead.phone_normalised}`, err);
+    }
+  }
+
   console.log(`[Cron] Follow-up sweep complete: ${results.length} messages queued.`);
   return NextResponse.json({ success: true, count: results.length, details: results });
 }

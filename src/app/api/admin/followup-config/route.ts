@@ -8,7 +8,7 @@ export const FOLLOWUP_DEFAULTS = {
   rule6_enabled:    true,
   rule6_delay_hours: 48,
   rule6a_template:  'wa_track_selector',
-  rule6b_template:  'wa_followup_2_quickreply',
+  rule6b_template:  'wa_mql_second',
 };
 
 export async function GET() {
