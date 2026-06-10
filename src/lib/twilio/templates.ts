@@ -5,11 +5,21 @@ import { config } from '../config';
 const CACHE_KEY = 'le:twilio:templates';
 const CACHE_TTL = 3600; // 1 hour
 
+export type TemplateButton = {
+  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | string;
+  title: string;
+  url?: string;
+  phone?: string;
+};
+
 export type TwilioTemplate = {
   sid: string;
   name: string;
   status: string;
   body: string | null;
+  buttons?: TemplateButton[];
+  mediaUrl?: string | null;
+  templateType?: string | null;
 };
 
 async function fetchFromTwilio(): Promise<TwilioTemplate[]> {
@@ -40,13 +50,34 @@ async function fetchFromTwilio(): Promise<TwilioTemplate[]> {
         if (!approvalRes.ok) return null;
         const approval = await approvalRes.json();
         const status: string = approval.whatsapp?.status ?? 'unknown';
-        const body: string | null =
-          c.types?.['twilio/text']?.body ??
-          c.types?.['twilio/quick-reply']?.body ??
-          c.types?.['twilio/call-to-action']?.body ??
-          c.types?.['twilio/media']?.body ??
+        const typeKey: string | null =
+          c.types?.['twilio/text'] ? 'twilio/text' :
+          c.types?.['twilio/quick-reply'] ? 'twilio/quick-reply' :
+          c.types?.['twilio/call-to-action'] ? 'twilio/call-to-action' :
+          c.types?.['twilio/media'] ? 'twilio/media' :
           null;
-        return { sid: c.sid as string, name: c.friendly_name as string, status, body };
+        const typeObj = typeKey ? c.types[typeKey] : null;
+        const body: string | null = typeObj?.body ?? null;
+
+        const buttons: TemplateButton[] = (typeObj?.actions ?? []).map((a: any) => ({
+          type:  a.type  ?? 'QUICK_REPLY',
+          title: a.title ?? '',
+          url:   a.url   ?? undefined,
+          phone: a.phone ?? undefined,
+        }));
+
+        const mediaUrl: string | null =
+          (c.types?.['twilio/media']?.media?.[0]) ?? null;
+
+        return {
+          sid:          c.sid as string,
+          name:         c.friendly_name as string,
+          status,
+          body,
+          buttons:      buttons.length > 0 ? buttons : undefined,
+          mediaUrl:     mediaUrl ?? undefined,
+          templateType: typeKey,
+        };
       } catch {
         return null;
       }

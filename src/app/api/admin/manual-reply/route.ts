@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { normaliseIndianPhone } from '@/lib/utils/phoneNormaliser';
 
 export async function POST(request: Request) {
-  const VALID_SOURCES = ['Direct WhatsApp', 'Instagram', 'Web Chat', 'Email'];
+  const VALID_SOURCES = ['Direct WhatsApp', 'Instagram', 'Web Chat', 'Email', 'IVR'];
   try {
     const { phone, source, messageSent, replyReceived, name } = await request.json();
     const newName = typeof name === 'string' && name.trim() ? name.trim() : null;
