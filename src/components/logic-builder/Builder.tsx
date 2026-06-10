@@ -196,7 +196,19 @@ export default function LogicBuilderCanvas() {
           {isSaving ? 'Saving...' : 'Save & Publish'}
         </button>
       </div>
-      
+
+      {/* UTILITY first-touch override notice — the rules engine swaps the final template
+          at send time; the graph's routing/filters still apply, its template is fallback. */}
+      {twilioTemplates.some((t) => t.name === 'wa_enquiry_received') && (
+        <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-2 text-xs text-emerald-900 z-10 flex items-center gap-2">
+          <span className="font-bold uppercase tracking-wide text-emerald-700">First-touch override active</span>
+          <span>
+            All “Send Template” actions below deliver <code className="font-mono bg-emerald-100 px-1 rounded">wa_enquiry_received</code> (UTILITY · ~100% delivery)
+            as the first message. The graph still routes and filters leads — its templates are used only as fallback if the utility template loses approval.
+          </span>
+        </div>
+      )}
+
       <div className="flex-1 flex overflow-hidden relative">
         {/* Canvas Area */}
         <div className="flex-1 relative bg-gray-50">
