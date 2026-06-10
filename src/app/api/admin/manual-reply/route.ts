@@ -40,7 +40,11 @@ export async function POST(request: Request) {
           lead_stage: 'MQL++',
           wa_state: 'replied_manual',
           wa_hotness: 'hot',
-          wa_opt_in: false,
+          // true, NOT false: wa_opt_in=false is the STOP/opt-out flag — it would
+          // permanently block this person from the utility receipt if they later
+          // submit the real enquiry form. replied_manual state already keeps them
+          // out of the automated send sweeps, so opt-in here is safe.
+          wa_opt_in: true,
           wa_last_inbound_at: nowIso,
         })
         .select('id, name, phone_normalised, zoho_lead_id, lead_stage')

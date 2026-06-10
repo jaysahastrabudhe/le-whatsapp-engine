@@ -79,6 +79,27 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
   // graph-driven welcome flow below takes over unchanged.
   const utilitySid = await getTwilioTemplateSid(UTILITY_FIRST_TOUCH_TEMPLATE);
   if (utilitySid) {
+    // Atomic claim: only the FIRST evaluation of this lead flips wa_last_outbound_at
+    // from NULL. Concurrent webhook deliveries / cron sweeps lose the race and bail,
+    // so the receipt is sent exactly once (fixes duplicate first-touch sends).
+    const nowIso = new Date().toISOString();
+    const { data: claimed } = await supabase
+      .from('leads')
+      .update({
+        wa_state: 'first_sent',
+        wa_last_outbound_at: nowIso,
+        wa_last_template: UTILITY_FIRST_TOUCH_TEMPLATE,
+        updated_at: nowIso,
+      })
+      .eq('id', lead.id)
+      .is('wa_last_outbound_at', null)
+      .select('id');
+
+    if (!claimed || claimed.length === 0) {
+      console.log(`[Rules Engine] Lead ${lead.id} already claimed by a concurrent evaluation — skipping duplicate first-touch.`);
+      return;
+    }
+
     console.log(`[Rules Engine] Universal UTILITY first-touch → ${lead.phone_normalised}`);
 
     await logRoutingEvent(lead.id, {
@@ -98,17 +119,11 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
       templateName: UTILITY_FIRST_TOUCH_TEMPLATE,
       leadId: lead.id,
       contentVariables: JSON.stringify({ '1': lead.name || 'there' }),
+      // The receipt is a transactional response to the form-fill the user just made.
+      // Without this, prior campaign/failed sends to the same phone trip the 2-message
+      // cooldown and the receipt is silently dropped while the lead looks contacted.
+      bypassCooldown: 'true',
     });
-
-    await supabase
-      .from('leads')
-      .update({
-        wa_state: 'first_sent',
-        wa_last_outbound_at: new Date().toISOString(),
-        wa_last_template: UTILITY_FIRST_TOUCH_TEMPLATE,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', lead.id);
 
     // Graph still decides filtering: closed leads go to manual triage (they keep
     // their receipt, but exit the automated follow-up chain).
