@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { getApprovedTemplates } from '@/lib/twilio/templates';
+import { getApprovedTemplates, syncTemplatesToSupabase } from '@/lib/twilio/templates';
 import Link from 'next/link';
 import { ReplyButton } from '@/components/ReplyButton';
 import { MarkManualButton } from '@/components/MarkManualButton';
@@ -57,8 +57,9 @@ export default async function AnalyticsPage({ searchParams }: Props) {
   const { tab = 'performance', filter = 'all', q = '', page = '1' } = await searchParams;
   const currentPage = Math.max(1, parseInt(page) || 1);
 
-  // Build SID ↔ name lookup from live Twilio templates (Supabase-persisted)
-  const liveTemplates = await getApprovedTemplates().catch(() => []);
+  // Build SID ↔ name lookup — sync from Twilio on every load so newly
+  // approved templates appear immediately (falls back to cached list on error)
+  const liveTemplates = await syncTemplatesToSupabase().catch(() => getApprovedTemplates()).catch(() => []);
   const SID_TO_NAME: Record<string, string> = Object.fromEntries(liveTemplates.map((t) => [t.sid, t.name]));
   const NAME_TO_SID: Record<string, string> = Object.fromEntries(liveTemplates.map((t) => [t.name, t.sid]));
 
