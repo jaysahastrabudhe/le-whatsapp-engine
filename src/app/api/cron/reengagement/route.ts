@@ -220,6 +220,61 @@ export async function GET(request: Request) {
     }
   }
 
+  // ── Rules 8-10: nurture drip sequence ────────────────────────────────────
+  // Each rule fires only after the previous one has been sent (checked via
+  // wa_last_template) and enough time has passed (wa_last_outbound_at cutoff).
+  // getTwilioTemplateSid returns null for pending templates → skips silently
+  // until Meta approves them.
+  const NURTURE_STEPS = [
+    { rule: 'rule8',  prevTemplate: 'wa_track_selector', template: 'wa_nurture_1', delayDays: 3  },
+    { rule: 'rule9',  prevTemplate: 'wa_nurture_1',      template: 'wa_nurture_2', delayDays: 4  },
+    { rule: 'rule10', prevTemplate: 'wa_nurture_2',      template: 'wa_nurture_3', delayDays: 7  },
+  ];
+
+  for (const step of NURTURE_STEPS) {
+    const cutoff = new Date(now - step.delayDays * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: stepLeads } = await supabase
+      .from('leads')
+      .select('id, phone_normalised, name')
+      .eq('wa_state', 'wa_nurture')
+      .eq('wa_opt_in', true)
+      .eq('wa_last_template', step.prevTemplate)
+      .lt('wa_last_outbound_at', cutoff)
+      .or('wa_last_inbound_at.is.null,wa_last_outbound_at.gt.wa_last_inbound_at')
+      .limit(50);
+
+    for (const lead of stepLeads ?? []) {
+      try {
+        const contentSid = await getTwilioTemplateSid(step.template);
+        if (!contentSid) {
+          console.warn(`[Cron ${step.rule}] ${step.template} not approved yet — skipping ${lead.phone_normalised}`);
+          continue;
+        }
+
+        await supabase
+          .from('leads')
+          .update({
+            wa_last_outbound_at: new Date().toISOString(),
+            wa_last_template:    step.template,
+          })
+          .eq('id', lead.id);
+
+        await enqueueOutboundMessage({
+          to:               lead.phone_normalised,
+          from:             PRIMARY_SENDER,
+          contentSid,
+          templateName:     step.template,
+          leadId:           lead.id,
+          contentVariables: JSON.stringify({ '1': lead.name ?? 'there' }),
+        });
+        results.push(`${step.rule}:${lead.phone_normalised}`);
+      } catch (err) {
+        console.error(`[Cron ${step.rule}] Failed for ${lead.phone_normalised}`, err);
+      }
+    }
+  }
+
   console.log(`[Cron] Follow-up sweep complete: ${results.length} messages queued.`);
   return NextResponse.json({ success: true, count: results.length, details: results });
 }
