@@ -80,6 +80,54 @@ export async function GET(request: Request) {
     }
   }
 
+  // ── Rule 5b: followup_sent → no reply 72h → track selector → nurture ────
+  const RULE5B_DELAY_HOURS = 72;
+  const rule5bcutoff = new Date(now - RULE5B_DELAY_HOURS * 60 * 60 * 1000).toISOString();
+
+  const { data: rule5bLeads } = await supabase
+    .from('leads')
+    .select('id, phone_normalised, name')
+    .eq('wa_state', 'followup_sent')
+    .eq('wa_opt_in', true)
+    .lt('wa_last_outbound_at', rule5bcutoff)
+    .is('wa_last_inbound_at', null)
+    .limit(50);
+
+  for (const lead of rule5bLeads ?? []) {
+    try {
+      const contentSid = await getTwilioTemplateSid('wa_track_selector');
+      if (!contentSid) {
+        console.warn(`[Cron Rule5b] wa_track_selector SID not found — skipping ${lead.phone_normalised}`);
+        continue;
+      }
+      const { error: stateErr } = await supabase
+        .from('leads')
+        .update({
+          wa_state:            'wa_nurture',
+          wa_last_outbound_at: new Date().toISOString(),
+          wa_last_template:    'wa_track_selector',
+        })
+        .eq('id', lead.id)
+        .eq('wa_state', 'followup_sent');
+
+      if (stateErr) {
+        console.warn(`[Cron Rule5b] Optimistic lock failed for ${lead.phone_normalised} — skipping`);
+        continue;
+      }
+      await enqueueOutboundMessage({
+        to:               lead.phone_normalised,
+        from:             PRIMARY_SENDER,
+        contentSid,
+        templateName:     'wa_track_selector',
+        leadId:           lead.id,
+        contentVariables: JSON.stringify({ '1': lead.name ?? 'there' }),
+      });
+      results.push(`rule5b:${lead.phone_normalised}`);
+    } catch (err) {
+      console.error(`[Cron Rule5b] Failed for ${lead.phone_normalised}`, err);
+    }
+  }
+
   // ── Rule 6a & 6b: post-reply silence ─────────────────────────────────────
   if (!cfg.rule6_enabled) {
     console.log('[Cron Rule6] Disabled — skipping.');
@@ -174,6 +222,30 @@ export async function GET(request: Request) {
         console.error(`[Cron Rule6b] Failed for ${lead.phone_normalised}`, err);
       }
     }
+  }
+
+  // ── Rule 6c: track_selector_sent → no reply 5d → quietly move to nurture ─
+  // No message sent — just unblocks Rules 8-10 which query wa_state=wa_nurture
+  // and wa_last_template=wa_track_selector.
+  const RULE6C_DELAY_DAYS = 5;
+  const rule6ccutoff = new Date(now - RULE6C_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: rule6cLeads } = await supabase
+    .from('leads')
+    .select('id, phone_normalised')
+    .eq('wa_state', 'track_selector_sent')
+    .eq('wa_opt_in', true)
+    .lt('wa_last_outbound_at', rule6ccutoff)
+    .or('wa_last_inbound_at.is.null,wa_last_outbound_at.gt.wa_last_inbound_at')
+    .limit(50);
+
+  for (const lead of rule6cLeads ?? []) {
+    await supabase
+      .from('leads')
+      .update({ wa_state: 'wa_nurture' })
+      .eq('id', lead.id)
+      .eq('wa_state', 'track_selector_sent');
+    results.push(`rule6c:${lead.phone_normalised}`);
   }
 
   // ── Rule 7: nurture re-engagement (7 days after going cold) ─────────────
