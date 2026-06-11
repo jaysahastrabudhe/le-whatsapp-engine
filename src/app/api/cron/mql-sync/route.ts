@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getZohoAccessToken } from '@/lib/zoho';
+import { evaluateLeadAction } from '@/lib/engine/rulesEngine';
 
 const ZOHO_BASE_URL = 'https://www.zohoapis.com/crm/v2';
 const FIELDS = 'id,Phone,Mobile,Full_Name,Email,Lead_Stage,Lead_Status';
@@ -144,6 +145,28 @@ async function handleSync(request: Request) {
     } else {
       totalCreated += chunk.length;
     }
+  }
+
+  // Trigger first-touch evaluation for newly created leads
+  if (totalCreated > 0) {
+    const newZohoIds = (toInsert as { zoho_lead_id: string }[]).map(r => r.zoho_lead_id);
+    const { data: newLeads } = await supabase
+      .from('leads')
+      .select('*')
+      .in('zoho_lead_id', newZohoIds)
+      .eq('wa_state', 'wa_pending')
+      .is('wa_last_outbound_at', null);
+
+    let triggered = 0;
+    for (const lead of newLeads || []) {
+      try {
+        await evaluateLeadAction(lead, 'zoho_mql_sync');
+        triggered++;
+      } catch (e) {
+        console.error(`[MQL Sync] evaluateLeadAction failed for lead ${lead.id}:`, e);
+      }
+    }
+    console.log(`[MQL Sync] Triggered first-touch for ${triggered}/${totalCreated} new leads`);
   }
 
   const summary = { totalProcessed: valid.length + totalSkipped, totalCreated, totalUpdated, totalSkipped };

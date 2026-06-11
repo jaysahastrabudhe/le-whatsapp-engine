@@ -156,7 +156,7 @@ export async function GET(request: Request) {
         .eq('wa_state', 'wa_pending')
         .eq('wa_opt_in', true)
         .is('wa_last_outbound_at', null)
-        .limit(20);
+        .limit(100);
 
       for (const lead of pendingLeads || []) {
         try {
