@@ -135,7 +135,6 @@ export async function GET(request: Request) {
       .select('id, phone_normalised, name')
       .eq('wa_state', 'replied')
       .eq('wa_opt_in', true)
-      .neq('wa_state', 'track_selector_sent')
       .lt('wa_last_inbound_at', rule6cutoff)
       .or('wa_last_outbound_at.is.null,wa_last_outbound_at.lt.wa_last_inbound_at')
       .not('lead_track', 'is', null)
