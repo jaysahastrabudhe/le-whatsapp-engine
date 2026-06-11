@@ -35,15 +35,17 @@ export default async function ReportsPage() {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
 
-  const [callsRes, inboundRes, downloadsRes] = await Promise.all([
+  const [callsRes, inboundRes, outboundRes, downloadsRes] = await Promise.all([
     supabase.from('call_logs').select('called_at').gte('called_at', cutoff)
       .not('contact_status', 'in', '("message_sent","message_no_reply")'),
     supabase.from('messages').select('sent_at').eq('direction', 'inbound').gte('sent_at', cutoff),
+    supabase.from('messages').select('sent_at').eq('direction', 'outbound').gte('sent_at', cutoff),
     supabase.from('csv_imports').select('created_at, row_count').eq('type', 'failed_export').order('created_at', { ascending: false }),
   ]);
 
   const callsByDay    = groupByDay(callsRes.data || [], 'called_at');
   const inboundByDay  = groupByDay(inboundRes.data || [], 'sent_at');
+  const outboundByDay = groupByDay(outboundRes.data || [], 'sent_at');
 
   // Downloads by day — keep latest row_count per day
   const downloadsByDay: Record<string, number> = {};
@@ -104,6 +106,18 @@ export default async function ReportsPage() {
           </div>
         </Link>
 
+        <Link href={`/admin/reports/daily-wa-flow?date=${today}`} className="group block">
+          <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-purple-500 transition-all">
+            <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-1 group-hover:text-purple-600 transition-colors">Daily WhatsApp Flow</h3>
+            <p className="text-gray-500 text-sm">New leads, delivery health, templates sent, button taps, and sequence pipeline snapshot.</p>
+          </div>
+        </Link>
+
         <Link href="/admin/reports/undelivered-downloads" className="group block">
           <div className="bg-white border rounded-xl p-6 h-full shadow-sm hover:shadow-md hover:border-orange-500 transition-all">
             <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-4">
@@ -127,13 +141,15 @@ export default async function ReportsPage() {
             <tr className="border-b text-xs text-gray-500 uppercase tracking-wider bg-gray-50/60">
               <th className="px-5 py-3 text-left">Date</th>
               <th className="px-5 py-3 text-center">Calls Logged</th>
-              <th className="px-5 py-3 text-center">Inbound Messages</th>
+              <th className="px-5 py-3 text-center">WA Sent</th>
+              <th className="px-5 py-3 text-center">WA Inbound</th>
               <th className="px-5 py-3 text-center">CSV Downloaded</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {days.map((day) => {
               const calls    = callsByDay[day] || 0;
+              const outbound = outboundByDay[day] || 0;
               const inbound  = inboundByDay[day] || 0;
               const download = downloadsByDay[day];
               const isToday  = day === today;
@@ -146,6 +162,11 @@ export default async function ReportsPage() {
                   <td className="px-5 py-3 text-center">
                     {calls > 0
                       ? <Link href={`/admin/reports/daily-calls?date=${day}`} className="text-blue-600 font-semibold hover:underline">{calls}</Link>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-5 py-3 text-center">
+                    {outbound > 0
+                      ? <Link href={`/admin/reports/daily-wa-flow?date=${day}`} className="text-purple-600 font-semibold hover:underline">{outbound}</Link>
                       : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-5 py-3 text-center">
