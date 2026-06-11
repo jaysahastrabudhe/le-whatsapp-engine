@@ -7,9 +7,10 @@ import { logRoutingEvent, RoutingTrigger } from './eventLogger';
 
 const PRIMARY_SENDER = '+917709333161';
 
-// UTILITY form-fill confirmation (HX3f2c109c…) — preferred first touch once Meta
-// approves it. Meta does not frequency-cap UTILITY templates → ~100% delivery.
-const UTILITY_FIRST_TOUCH_TEMPLATE = 'wa_enquiry_received';
+// Combined enquiry confirmation + CTA buttons. Falls back to plain confirmation
+// while wa_enquiry_cta is pending Meta approval.
+const UTILITY_FIRST_TOUCH_TEMPLATE = 'wa_enquiry_cta';
+const UTILITY_FIRST_TOUCH_FALLBACK = 'wa_enquiry_received';
 
 export async function handleOptOut(leadId: string) {
   console.log(`[Rules Engine] Processing STOP/Opt-Out for lead ${leadId}`);
@@ -77,7 +78,12 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
   // the follow-up chain / the reply session. If the utility template is ever
   // unapproved/unresolvable this whole block is skipped and the legacy
   // graph-driven welcome flow below takes over unchanged.
-  const utilitySid = await getTwilioTemplateSid(UTILITY_FIRST_TOUCH_TEMPLATE);
+  const [ctaSid, fallbackSid] = await Promise.all([
+    getTwilioTemplateSid(UTILITY_FIRST_TOUCH_TEMPLATE),
+    getTwilioTemplateSid(UTILITY_FIRST_TOUCH_FALLBACK),
+  ]);
+  const utilitySid = ctaSid ?? fallbackSid;
+  const utilityTemplateName = ctaSid ? UTILITY_FIRST_TOUCH_TEMPLATE : UTILITY_FIRST_TOUCH_FALLBACK;
   if (utilitySid) {
     // Atomic claim: only the FIRST evaluation of this lead flips wa_last_outbound_at
     // from NULL. Concurrent webhook deliveries / cron sweeps lose the race and bail,
@@ -88,7 +94,7 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
       .update({
         wa_state: 'first_sent',
         wa_last_outbound_at: nowIso,
-        wa_last_template: UTILITY_FIRST_TOUCH_TEMPLATE,
+        wa_last_template: utilityTemplateName,
         updated_at: nowIso,
       })
       .eq('id', lead.id)
@@ -107,7 +113,7 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
       graph_used: false,
       lead_source: lead.lead_source ?? null,
       persona: lead.persona ?? null,
-      template_selected: UTILITY_FIRST_TOUCH_TEMPLATE,
+      template_selected: utilityTemplateName,
       template_sid: utilitySid,
       reason: 'utility_first_touch',
     });
@@ -116,7 +122,7 @@ export async function evaluateLeadAction(lead: Lead, trigger: RoutingTrigger = '
       to: lead.phone_normalised,
       from: PRIMARY_SENDER,
       contentSid: utilitySid,
-      templateName: UTILITY_FIRST_TOUCH_TEMPLATE,
+      templateName: utilityTemplateName,
       leadId: lead.id,
       contentVariables: JSON.stringify({ '1': lead.name || 'there' }),
       // The receipt is a transactional response to the form-fill the user just made.

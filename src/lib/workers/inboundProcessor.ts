@@ -19,10 +19,11 @@ const BUTTON_MAP: Record<string, { replyClass: string; hotness: string; waState:
   // wa_webinar_cta buttons
   WEBINAR_YES: { replyClass: 'interested', hotness: 'warm', waState: 'wa_hot'    },
   WEBINAR_NO:  { replyClass: 'not_now',    hotness: 'cold', waState: 'wa_nurture' },
-  // wa_followup_1_v2 buttons
+  // wa_followup_1_v2 + wa_enquiry_cta buttons
   'Call me today': { replyClass: 'interested', hotness: 'hot',  waState: 'call_queued' },
   'Send brochure': { replyClass: 'interested', hotness: 'warm', waState: 'wa_hot'      },
   'Not now':       { replyClass: 'not_now',    hotness: 'cold', waState: 'wa_nurture'  },
+  'Maybe later':   { replyClass: 'not_now',    hotness: 'cold', waState: 'wa_nurture'  },
 };
 
 // Track-selector buttons that also write lead_track
