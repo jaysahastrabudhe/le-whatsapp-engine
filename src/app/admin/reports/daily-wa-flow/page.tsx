@@ -130,18 +130,32 @@ export default async function DailyWAFlowPage({ searchParams }: { searchParams: 
     tapCounts[btn] = (tapCounts[btn] || 0) + 1;
   }
 
-  // ── Pipeline snapshot (current, all time) ────────────────────────────────
+  // ── Pipeline: leads with activity today (updated_at within day) ─────────
+  const { data: activeLeads } = await supabase
+    .from('leads')
+    .select('wa_state')
+    .gte('updated_at', start)
+    .lte('updated_at', end);
+
   const pipelineCounts: Record<string, number> = {};
+  for (const l of activeLeads || []) {
+    const s = l.wa_state || 'unknown';
+    pipelineCounts[s] = (pipelineCounts[s] || 0) + 1;
+  }
+  const pipelineTotal = (activeLeads || []).length;
+
+  // ── All-time snapshot for context ────────────────────────────────────────
+  const snapshotCounts: Record<string, number> = {};
   await Promise.all(
     PIPELINE_STAGES.map(async ({ state }) => {
       const { count } = await supabase
         .from('leads')
         .select('*', { count: 'exact', head: true })
         .eq('wa_state', state);
-      pipelineCounts[state] = count ?? 0;
+      snapshotCounts[state] = count ?? 0;
     })
   );
-  const pipelineTotal = Object.values(pipelineCounts).reduce((a, b) => a + b, 0);
+  const snapshotTotal = Object.values(snapshotCounts).reduce((a, b) => a + b, 0);
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8">
@@ -267,26 +281,61 @@ export default async function DailyWAFlowPage({ searchParams }: { searchParams: 
         )}
       </section>
 
-      {/* Section 5: Sequence pipeline snapshot */}
+      {/* Section 5a: Today's lead activity by state */}
       <section>
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          Sequence Pipeline — {pipelineTotal} active opted-in leads
+          Today&apos;s Lead Activity — {pipelineTotal} leads updated
+        </h2>
+        {pipelineTotal === 0 ? (
+          <p className="text-sm text-gray-400 italic">No lead activity recorded for this date.</p>
+        ) : (
+          <div className="bg-white border rounded-xl overflow-hidden">
+            {Object.entries(pipelineCounts)
+              .sort((a, b) => b[1] - a[1])
+              .map(([state, count]) => {
+                const stage = PIPELINE_STAGES.find(s => s.state === state);
+                const color = stage?.color || 'gray';
+                const label = stage?.label || state;
+                const pct   = pipelineTotal > 0 ? Math.round((count / pipelineTotal) * 100) : 0;
+                return (
+                  <div key={state} className="flex items-center gap-4 px-5 py-3 border-b last:border-0 hover:bg-gray-50">
+                    <div className="w-44 shrink-0">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${BG[color]} ${TONE[color]}`}>{label}</span>
+                    </div>
+                    <div className="flex-1 bg-gray-100 rounded-full h-2">
+                      <div className={`h-2 rounded-full ${BAR_COLOR[color]}`} style={{ width: `${Math.max(pct, 2)}%` }} />
+                    </div>
+                    <div className="w-16 text-right">
+                      <span className={`font-bold text-sm ${TONE[color]}`}>{count}</span>
+                      <span className="text-gray-400 text-xs ml-1">({pct}%)</span>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+      </section>
+
+      {/* Section 5b: All-time pipeline snapshot */}
+      <section>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+          Pipeline Snapshot (all time) — {snapshotTotal} leads
         </h2>
         <div className="bg-white border rounded-xl overflow-hidden">
-          {PIPELINE_STAGES.map(({ state, label, color }) => {
-            const count = pipelineCounts[state] || 0;
-            const pct   = pipelineTotal > 0 ? Math.round((count / pipelineTotal) * 100) : 0;
+          {PIPELINE_STAGES.filter(({ state }) => snapshotCounts[state] > 0).map(({ state, label, color }) => {
+            const count = snapshotCounts[state] || 0;
+            const pct   = snapshotTotal > 0 ? Math.round((count / snapshotTotal) * 100) : 0;
             return (
               <div key={state} className="flex items-center gap-4 px-5 py-3 border-b last:border-0 hover:bg-gray-50">
-                <div className="w-36 shrink-0">
+                <div className="w-44 shrink-0">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${BG[color]} ${TONE[color]}`}>{label}</span>
                 </div>
                 <div className="flex-1 bg-gray-100 rounded-full h-2">
-                  <div className={`h-2 rounded-full ${BAR_COLOR[color]}`} style={{ width: `${Math.max(pct, count > 0 ? 2 : 0)}%` }} />
+                  <div className={`h-2 rounded-full ${BAR_COLOR[color]}`} style={{ width: `${Math.max(pct, count > 0 ? 1 : 0)}%` }} />
                 </div>
-                <div className="w-16 text-right">
-                  <span className={`font-bold text-sm ${count > 0 ? TONE[color] : 'text-gray-300'}`}>{count}</span>
-                  {count > 0 && <span className="text-gray-400 text-xs ml-1">({pct}%)</span>}
+                <div className="w-20 text-right">
+                  <span className={`font-bold text-sm ${TONE[color]}`}>{count}</span>
+                  <span className="text-gray-400 text-xs ml-1">({pct}%)</span>
                 </div>
               </div>
             );
@@ -295,8 +344,8 @@ export default async function DailyWAFlowPage({ searchParams }: { searchParams: 
       </section>
 
       <p className="text-xs text-gray-400 italic">
-        "Today" = IST midnight to midnight. Template stats use wa_last_outbound_at as proxy — counts the last template
-        sent to each lead today. Pipeline snapshot is live current state.
+        "Today" = IST midnight to midnight. Template stats use wa_last_outbound_at as proxy.
+        Today&apos;s lead activity = leads with updated_at within the day. Pipeline snapshot = live all-time counts.
       </p>
     </div>
   );
