@@ -22,12 +22,16 @@ const FLOW_TEMPLATES = [
 const PIPELINE_STAGES: { state: string; label: string; color: string }[] = [
   { state: 'first_sent',           label: 'First touch sent',       color: 'blue'   },
   { state: 'followup_sent',        label: 'Follow-up sent',         color: 'indigo' },
-  { state: 'replied',              label: 'Replied (pending)',       color: 'amber'  },
   { state: 'track_selector_sent',  label: 'Track selector sent',    color: 'purple' },
   { state: 'wa_nurture',           label: 'In nurture',             color: 'teal'   },
+  { state: 'replied',              label: 'Replied (pending)',       color: 'amber'  },
   { state: 'wa_hot',               label: 'Hot',                    color: 'green'  },
   { state: 'call_queued',          label: 'Call queued',            color: 'green'  },
+  { state: 'call_follow_up',       label: 'Call follow-up',         color: 'green'  },
+  { state: 'wa_sla_escalated',     label: 'SLA escalated',          color: 'orange' },
   { state: 'wa_manual_triage',     label: 'Manual triage',          color: 'orange' },
+  { state: 'wa_pending',           label: 'Pending (send window)',  color: 'gray'   },
+  { state: 'wa_unrouted',          label: 'Unrouted',               color: 'red'    },
   { state: 'wa_closed',            label: 'Closed / opted out',     color: 'red'    },
 ];
 
@@ -133,8 +137,7 @@ export default async function DailyWAFlowPage({ searchParams }: { searchParams: 
       const { count } = await supabase
         .from('leads')
         .select('*', { count: 'exact', head: true })
-        .eq('wa_state', state)
-        .eq('wa_opt_in', true);
+        .eq('wa_state', state);
       pipelineCounts[state] = count ?? 0;
     })
   );
